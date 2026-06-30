@@ -243,6 +243,27 @@ def auto_harvest(folders=None, fps=0.5, settle_s=25, max_frames=150, bootstrap_n
     return out
 
 
+def add_image(src_path, prefix="scan"):
+    """Add ONE screenshot (a Vision/scan/map capture) to the labeling pool -- copies
+    it into dataset/images/ as a jpg so it appears in the Label tab. Returns the new
+    image name or None. Lets every screen grab the owner takes become a labelable frame."""
+    try:
+        if not src_path or not os.path.exists(src_path):
+            return None
+        import time as _t
+        out = _images_dir() / ("%s_%d.jpg" % (prefix, int(_t.time() * 1000)))
+        try:
+            from PIL import Image
+            Image.open(src_path).convert("RGB").save(str(out), quality=88)
+        except Exception:
+            import shutil
+            out = out.with_suffix(os.path.splitext(src_path)[1] or ".png")
+            shutil.copy2(src_path, str(out))
+        return out.name
+    except Exception:
+        return None
+
+
 def harvest(video_paths=None, youtube_urls=None, fps=1):
     """Harvest from local clips + optional online videos. Returns a summary."""
     total = 0

@@ -249,6 +249,19 @@ def _prune_recordings():
         pass
 
 
+def _label_pool_add(image_path, prefix="scan"):
+    """ADMIN/OWNER only: also drop a screen capture into the YOLO labeling pool so
+    you can label it later. Consumers never train, so this is gated on admin."""
+    if fragroute_dataset is None or not image_path:
+        return
+    try:
+        if fragroute_license is not None and not fragroute_license.is_enabled("train"):
+            return
+        fragroute_dataset.add_image(image_path, prefix)
+    except Exception:
+        pass
+
+
 def capture_match_end(match_dur=None):
     """At match end: save the recording (gated). In FULL-MATCH mode we stop the
     recorder and save the WHOLE game; in highlight mode we keep the rolling buffer
@@ -417,6 +430,7 @@ def recognize_screen(image_path=None):
             return {"ok": False, "message": "couldn't capture the screen (fullscreen-exclusive? try Borderless)"}
         image_path = str(shot)
         saved_name = shot.name
+        _label_pool_add(image_path, "scan")   # admin-only: feed the labeling pool
     # speed: 640px + a tight token cap keeps a "what's on screen" read fast (~1-2s
     # warm). The VLM is a snapshot analyst, not a per-frame real-time tracker.
     txt = fragroute_llm.chat_vision(_RECOG_PROMPT, image_path, maxdim=640, max_tokens=300)
@@ -453,6 +467,7 @@ def capture_map():
     shot = d / ("map_%s.png" % stamp)
     if not fragroute_capture.capture_screenshot(str(shot)):
         return {"ok": False, "message": "couldn't capture the screen"}
+    _label_pool_add(str(shot), "map")   # admin-only: feed the labeling pool
     prompt = ("This is a FragPunk match screenshot. If a map name is visible, state it "
               "first. Then describe this area of the map: key sightlines, angles, "
               "cover/corners, and one strong position or peek to hold here. Be concise.")
@@ -712,28 +727,39 @@ def _build_ai_ctx():
         frames = fragroute_video.frames_timed(src, fps=1.0, max_frames=240)
         if not frames:
             return {"ok": False, "message": "couldn't read the recording"}
-        # score each second by action: enemies on screen + a killfeed bump
+        # score each sampled second by action. Weight the clear action cues, but
+        # give ANY detection some weight so a still-improving model isn't useless.
+        _w = {"enemy": 2.0, "enemy head": 2.0, "downed enemy": 3.0,
+              "killfeed": 4.0, "dropped weapon": 1.0}
         scored = []
         for t, fp in frames:
             try:
-                dets = fragroute_yolo.detect_image(fp, conf_thr=0.4)
+                dets = fragroute_yolo.detect_image(fp, conf_thr=0.35)
             except Exception:
                 dets = []
-            score = sum(1 for d in dets if d.get("label") in ("enemy", "enemy head")) \
-                + (3 if any(d.get("label") == "killfeed" for d in dets) else 0)
+            score = sum(_w.get(d.get("label"), 0.4) for d in dets)
             scored.append((t, score))
-        # pick peak moments (score>=2), merge ones within 5s, cap to 8
-        moments, last = [], -99
+        # pick peak moments (merge ones within 5s, cap 8)
+        moments = []
         for t, s in sorted(scored, key=lambda x: -x[1]):
-            if s < 2:
+            if s < 1.5:
                 break
             if all(abs(t - m) >= 5 for m in moments):
                 moments.append(t)
             if len(moments) >= 8:
                 break
+        sampled = False
+        # FALLBACK: the detector found little/no action -> evenly sample the
+        # recording so you ALWAYS get a highlight reel instead of an error.
+        if len(moments) < 2 and frames:
+            ts = [t for t, _ in frames]
+            n = min(6, max(2, len(ts) // 8))
+            step = max(1, len(ts) // n)
+            moments = sorted({ts[i] for i in range(0, len(ts), step)})[:n]
+            sampled = True
         moments.sort()
         if not moments:
-            return {"ok": False, "message": "no clear action moments found in the latest recording"}
+            return {"ok": False, "message": "couldn't read the recording to make highlights"}
         cuts = []
         for t in moments:
             r = fragroute_video.trim(src, max(0.0, t - 3.0), 6.0)
@@ -745,7 +771,8 @@ def _build_ai_ctx():
             return {"ok": True, "message": "1 action moment -> %s (in Edited)." % os.path.basename(cuts[0])}
         r = fragroute_video.montage(cuts, title=f"{APP_NAME} Highlights")
         if r.get("ok"):
-            return {"ok": True, "message": "Auto-highlights: %d moments stitched -> %s (in the Video tab)." % (len(cuts), r.get("name"))}
+            note = " (evenly sampled -- the detector found little action; label more to improve)" if sampled else ""
+            return {"ok": True, "message": "Auto-highlights: %d moments stitched -> %s%s (Video tab)." % (len(cuts), r.get("name"), note)}
         return {"ok": False, "message": r.get("message", "montage failed")}
     acts["make_highlights"] = _make_highlights
 
@@ -926,7 +953,7 @@ def voice_command():
     _speak(reply)
 
 
-APP_BUILD = "14.6"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "14.7"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
