@@ -178,7 +178,11 @@ def _auto_harvest_loop():
     while True:
         try:
             time.sleep(90)
-            if not get_setting("autoHarvest", False) or fragroute_dataset is None:
+            if not get_setting("autoHarvest", True) or fragroute_dataset is None:
+                continue
+            # DEV/OWNER ONLY: labeling + training the detector is the owner's job;
+            # a consumer never harvests. Gated on the admin entitlement ("train").
+            if fragroute_license is not None and not fragroute_license.is_enabled("train"):
                 continue
             # only when idle/menu -- harvesting does ffmpeg + CPU detection work
             if AUTODETECT.get("phase") == "match":
@@ -922,7 +926,7 @@ def voice_command():
     _speak(reply)
 
 
-APP_BUILD = "14.5"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "14.6"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -3514,8 +3518,8 @@ DEFAULT_SETTINGS = {
     "preferredRegion": "",          # bias the recommendation toward this region
     "maxPing": 120,                 # ping cap (mirrors the inline slider)
     # --- YOLO training data ---
-    "autoHarvest": False,           # auto-import new recordings into the YOLO dataset
-    "harvestFolders": [],           # folders to watch for recordings (OBS output, etc.)
+    "autoHarvest": True,            # auto-import match recordings into the YOLO dataset (ADMIN-only at runtime)
+    "harvestFolders": [],           # extra folders to watch (OBS output, etc.); clips/ is always included
     # --- live game / auto-capture ---
     "autoCapture": True,            # auto-log queue/match times from detection
     "gamePollSeconds": 6,           # backend monitor poll interval (2-60)
