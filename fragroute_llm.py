@@ -406,6 +406,20 @@ def ensure_vision_running(timeout=150):
     return False
 
 
+def warm_vision():
+    """Start loading the vision model in the BACKGROUND so the first real call isn't
+    a cold model load. Non-blocking; a no-op if already ready or starting."""
+    try:
+        p = _VSTATE.get("proc")
+        if _VSTATE.get("ready") and p is not None and p.poll() is None:
+            return
+        if _VSTATE.get("starting"):
+            return
+        threading.Thread(target=ensure_vision_running, daemon=True).start()
+    except Exception:
+        pass
+
+
 def _img_data_url(path, maxdim=1024):
     """base64 data-URL for an image, DOWNSCALED to maxdim. High-res (1080p+) frames
     tokenize into too many vision tokens and overflow the context -> empty replies;

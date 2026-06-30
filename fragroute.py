@@ -413,7 +413,9 @@ def recognize_screen(image_path=None):
             return {"ok": False, "message": "couldn't capture the screen (fullscreen-exclusive? try Borderless)"}
         image_path = str(shot)
         saved_name = shot.name
-    txt = fragroute_llm.chat_vision(_RECOG_PROMPT, image_path, maxdim=768)
+    # speed: 640px + a tight token cap keeps a "what's on screen" read fast (~1-2s
+    # warm). The VLM is a snapshot analyst, not a per-frame real-time tracker.
+    txt = fragroute_llm.chat_vision(_RECOG_PROMPT, image_path, maxdim=640, max_tokens=300)
     if saved_name:                     # show the capture in the gallery either way
         try:
             store = _maps_store()
@@ -920,7 +922,7 @@ def voice_command():
     _speak(reply)
 
 
-APP_BUILD = "14.4"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "14.5"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -6921,6 +6923,15 @@ class Handler(BaseHTTPRequestHandler):
             if fragroute_llm is None:
                 return self._json({"available": False, "ready": False})
             return self._json(fragroute_llm.vision_status())
+
+        if path == "/api/ai/vision/warm":
+            # background pre-load the vision model so the first Recognize isn't a cold start
+            if fragroute_llm is not None:
+                try:
+                    fragroute_llm.warm_vision()
+                except Exception:
+                    pass
+            return self._json({"ok": True})
 
         if path == "/api/ai/image/status":
             if fragroute_imagegen is None:

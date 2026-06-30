@@ -2883,7 +2883,7 @@ function switchTab(name){
   if(name==='coach' && typeof aiLlmStatus==='function')aiLlmStatus();
   if(name==='footage' && typeof aifRefresh==='function'){ aifRefresh(); aifLoadOpts&&aifLoadOpts(); }
   if(name==='create' && typeof igStatus==='function'){ igStatus(); igLoad&&igLoad(); }
-  if(name==='vision' && typeof mvLoad==='function')mvLoad();
+  if(name==='vision' && typeof mvLoad==='function'){ mvLoad(); fetch(API+'/api/ai/vision/warm').catch(()=>{}); }  // pre-load the model so Recognize is fast
   if(name==='label' && typeof lbInit==='function')lbInit();
   if(name==='video' && typeof vidInit==='function')vidInit();
   if(name==='setup' && typeof setupLoad==='function')setupLoad();
