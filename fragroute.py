@@ -920,7 +920,7 @@ def voice_command():
     _speak(reply)
 
 
-APP_BUILD = "14.3"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "14.4"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -3930,6 +3930,7 @@ def _autodetect_tick():
                     # non-VPN matches still land in stats + the learning store.
                     append_log({"regionId": rid or "unknown", "duration": dur,
                                 "outcome": "matched", "ts": t_ms, "auto": True,
+                                **({"mode": mode_key} if (mode_key and mode_key != "unknown") else {}),
                                 **({"manual": True} if manual else {}),
                                 **({"ocr": True} if ocr_used else {})})
                 # desktop toast when a match is found (useful while the window
@@ -7395,6 +7396,18 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/log/clear":
             save_log([])
             return self._json({"ok": True, "log": []})
+
+        if path == "/api/log/prune":
+            # remove only the junk entries: matches with an UNKNOWN/empty region
+            # (off-VPN before GeoIP resolved them). Keeps all good history.
+            try:
+                cur = load_log()
+            except Exception:
+                cur = []
+            kept = [e for e in cur if str(e.get("regionId") or "").lower() not in ("", "unknown", "none")]
+            removed = len(cur) - len(kept)
+            save_log(kept)
+            return self._json({"ok": True, "removed": removed, "log": kept})
 
         if path == "/api/log/import":
             # replace the whole log with a provided array (for restore/import).

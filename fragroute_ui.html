@@ -1331,7 +1331,7 @@
       </div>
     </div>
     <div class="panel cyan">
-      <div class="section-title"><span>Queue Log</span><button class="clear-btn" id="clearBtn">Clear</button></div>
+      <div class="section-title"><span>Queue Log</span><span style="display:flex;gap:6px"><button class="clear-btn" id="pruneUnkBtn" title="Remove only the off-VPN matches that have an unknown region">Clean unknown</button><button class="clear-btn" id="clearBtn">Clear</button></span></div>
       <ul class="history-list" id="historyList"></ul>
     </div>
   </div>
@@ -3964,6 +3964,12 @@ document.getElementById('verifyBtn').addEventListener('click',verifyIp);
 document.getElementById('pingBtn').addEventListener('click',refreshPings);
 document.getElementById('recConnectBtn').addEventListener('click',e=>{const rid=e.currentTarget.dataset.recTarget;if(rid)doConnectRegionBest(rid);});
 document.getElementById('clearBtn').addEventListener('click',async()=>{if(!LOG.length)return;if(confirm('Clear all queue history?')){await fetch(API+'/api/log/clear',{method:'POST'});LOG=[];renderLog();updateLive();}});
+(function(){const b=document.getElementById('pruneUnkBtn');if(b)b.addEventListener('click',async()=>{
+  if(confirm('Remove the off-VPN matches with an unknown region? Your other history stays.')){
+    try{const j=await (await fetch(API+'/api/log/prune',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+      LOG=j.log||LOG; renderLog(); updateLive(); toast('Removed '+(j.removed||0)+' unknown entr'+((j.removed===1)?'y':'ies'),'ok');
+    }catch(e){ toast('Cleanup failed','err'); }
+  }});})();
 const cap=document.getElementById('capSlider');
 cap.addEventListener('input',()=>{PING_CAP=parseInt(cap.value,10);document.getElementById('capVal').textContent=PING_CAP+'ms';updateLive();});
 cap.addEventListener('change',()=>{saveSetting('maxPing',parseInt(cap.value,10));});
