@@ -4818,10 +4818,11 @@ async function mvLoad(){
   }catch(e){}
 }
 async function mvRecognize(){
-  toast('AI is looking at your screen…','ok');
+  toast('Capturing your screen…','ok');
   try{ const j=await (await fetch(API+'/api/ai/recognize',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
-    if(j&&j.reply){ if(typeof _aiAppend==='function'){ _aiAppend('user','👁 What is on my screen?'); _aiAppend('bot',j.reply); } toast('Recognized','ok'); }
-    else toast((j&&j.message)||'Could not read the screen','warn');
+    mvLoad();   // ALWAYS show the captured screenshot in the gallery, even if the model gave nothing
+    if(typeof _aiAppend==='function'){ _aiAppend('user','👁 What is on my screen?'); _aiAppend('bot',(j&&j.reply)||(j&&j.message)||'Could not read the screen'); }
+    toast((j&&j.ok)?'Recognized':((j&&j.message)||(j&&j.visionError)||'Captured — model gave no reading'), (j&&j.ok)?'ok':'warn');
   }catch(e){ toast('Recognition failed','err'); }
 }
 async function mvCaptureMap(){
@@ -5225,9 +5226,11 @@ async function aifLoadClips(){
   try{
     const j=await (await fetch(API+'/api/capture/clips')).json();
     const items=j.items||[]; const dir=j.dir||'';
+    const u=j.usage||null; const cap=j.capGB||40;
+    const usage = u ? ` · <b>${u.usedGB} / ${cap} GB</b> · ${u.freeGB} GB free` : '';
     const head = `<div class="aif-clipdir">📁 <span class="mono" title="${_aiEsc(dir)}">${_aiEsc(dir)}</span>`
       + `<button class="mini-btn" id="aifOpenDir">Open folder</button>`
-      + `<span class="aif-clipcount">${items.length} recording${items.length===1?'':'s'}</span></div>`;
+      + `<span class="aif-clipcount">${items.length} recording${items.length===1?'':'s'}${usage}</span></div>`;
     box.innerHTML = head + (items.length ? items.slice(0,40).map(c=>{
       const d=c.ts?new Date(c.ts):null;
       const date=d?d.toLocaleDateString():'—', tm=d?d.toLocaleTimeString():'';

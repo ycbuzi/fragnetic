@@ -356,6 +356,64 @@ def save_full(base_dir, label="match"):
             "message": "Saved %s (~%s min)" % (out.name, mins)}
 
 
+def _free_disk_gb(path):
+    try:
+        import shutil
+        return shutil.disk_usage(str(path)).free / (1024.0 ** 3)
+    except Exception:
+        return None
+
+
+def recordings_usage(base_dir):
+    """Current size of the recordings folder + free disk, for the UI."""
+    clips = Path(base_dir) / "clips"
+    used = 0
+    n = 0
+    if clips.exists():
+        for f in clips.glob("*.mp4"):
+            try:
+                used += f.stat().st_size
+                n += 1
+            except Exception:
+                pass
+    return {"usedGB": round(used / (1024.0 ** 3), 2), "count": n,
+            "freeGB": round(_free_disk_gb(clips) or 0, 1)}
+
+
+def prune_recordings(base_dir, max_gb=40, min_free_gb=5):
+    """Disk-sensitive auto-cleanup: delete OLDEST recordings until the folder is
+    under `max_gb` AND the disk has at least `min_free_gb` free. Never touches a
+    file that's currently being written (the ring/ segments are separate). Returns
+    {deleted, freedMB, usedGB}."""
+    clips = Path(base_dir) / "clips"
+    if not clips.exists():
+        return {"deleted": 0, "freedMB": 0, "usedGB": 0}
+    files = sorted(clips.glob("*.mp4"), key=lambda f: f.stat().st_mtime)  # oldest first
+    try:
+        used = sum(f.stat().st_size for f in files)
+    except Exception:
+        used = 0
+    max_bytes = int(float(max_gb) * (1024.0 ** 3))
+    free = _free_disk_gb(clips)
+    deleted, freed = 0, 0
+    for f in files:
+        over_cap = used > max_bytes
+        low_disk = (free is not None and free < float(min_free_gb))
+        if not over_cap and not low_disk:
+            break
+        try:
+            sz = f.stat().st_size
+            f.unlink()
+            used -= sz
+            freed += sz
+            deleted += 1
+            if free is not None:
+                free += sz / (1024.0 ** 3)
+        except Exception:
+            pass
+    return {"deleted": deleted, "freedMB": round(freed / 1048576), "usedGB": round(used / (1024.0 ** 3), 2)}
+
+
 def extract_frame(clip_path, out_path, at_seconds=None):
     """Pull a single frame from a clip to a PNG (for the vision model to analyze).
     at_seconds=None grabs an early frame. Returns True on success."""

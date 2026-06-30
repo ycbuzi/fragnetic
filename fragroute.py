@@ -208,6 +208,7 @@ def capture_auto_start(reason="match"):
             return
         if fragroute_capture.is_recording():
             return
+        _prune_recordings()   # free disk headroom BEFORE a (potentially large) full-match record
         # full-match recording => unlimited segments (ring_segments=0, no rolling
         # overwrite) so the WHOLE game is kept; else the rolling highlight buffer.
         full = get_setting("fullMatchRecording", True)
@@ -226,6 +227,22 @@ def _clip_seconds():
         return max(60, int(get_setting("clipSeconds", 60)))
     except Exception:
         return 60
+
+
+def _prune_recordings():
+    """Disk-sensitive auto-cleanup: keep recordings under the GB cap (default 40)
+    and leave the disk some headroom, deleting OLDEST first. Best effort; logged."""
+    if fragroute_capture is None:
+        return
+    try:
+        max_gb = float(get_setting("recordingsMaxGB", 40))
+        min_free = float(get_setting("recordingsMinFreeGB", 5))
+        r = fragroute_capture.prune_recordings(_captures_dir(), max_gb=max_gb, min_free_gb=min_free)
+        if r.get("deleted"):
+            diag("capture", True, msg="auto-cleanup: removed %d old recording(s), freed %dMB "
+                 "(now %.1fGB / %.0fGB cap)" % (r["deleted"], r.get("freedMB", 0), r.get("usedGB", 0), max_gb))
+    except Exception:
+        pass
 
 
 def capture_match_end(match_dur=None):
@@ -258,6 +275,7 @@ def capture_match_end(match_dur=None):
         if r.get("ok"):
             diag("capture", True, msg="%s SAVED: %s" % (kind, r.get("name", "")))
             _notify("Match recording saved", r.get("message") or r.get("name", ""))
+            _prune_recordings()   # keep under the GB cap after a new recording lands
         else:
             diag("capture", False, msg="match-end save FAILED: %s" % r.get("message", "?"))
     except Exception as e:
@@ -381,15 +399,40 @@ _RECOG_PROMPT = (
 
 def recognize_screen(image_path=None):
     """Capture the screen (or use a given image) and have the vision model identify
-    FragPunk weapon type / enemies / map / HUD, with HUD-layout grounding."""
+    FragPunk weapon type / enemies / map / HUD. The grab is saved into the Maps
+    gallery so the user always SEES the capture, even if the vision model is slow/
+    unavailable; the model's error (if any) is surfaced instead of a silent blank."""
     if fragroute_llm is None:
         return {"ok": False, "message": "vision model unavailable"}
+    saved_name = None
     if image_path is None:
-        image_path = str(Path(tempfile.gettempdir()) / "fragroute_recognize.png")
-        if fragroute_capture is None or not fragroute_capture.capture_screenshot(image_path):
-            return {"ok": False, "message": "couldn't capture the screen"}
+        d = _maps_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        shot = d / ("scan_%s.png" % time.strftime("%Y%m%d_%H%M%S", time.localtime()))
+        if fragroute_capture is None or not fragroute_capture.capture_screenshot(str(shot)):
+            return {"ok": False, "message": "couldn't capture the screen (fullscreen-exclusive? try Borderless)"}
+        image_path = str(shot)
+        saved_name = shot.name
     txt = fragroute_llm.chat_vision(_RECOG_PROMPT, image_path, maxdim=768)
-    return {"ok": bool(txt), "reply": txt or "couldn't read the screen"}
+    if saved_name:                     # show the capture in the gallery either way
+        try:
+            store = _maps_store()
+            store.setdefault("captures", []).insert(0, {
+                "image": saved_name, "notes": txt or "", "ts": int(time.time() * 1000)})
+            store["captures"] = store["captures"][:80]
+            _save_maps(store)
+        except Exception:
+            pass
+    err = None
+    if not txt:
+        try:
+            err = (fragroute_llm.vision_status() or {}).get("error")
+        except Exception:
+            err = None
+    diag("ai", bool(txt), msg="recognize: %s" % ("ok" if txt else "no model output: %s" % (err or "?")))
+    return {"ok": bool(txt), "image": saved_name, "visionError": err,
+            "reply": txt or ("Captured your screen, but the vision model returned nothing"
+                             "%s." % (" (%s)" % err if err else ""))}
 
 
 def capture_map():
@@ -877,7 +920,7 @@ def voice_command():
     _speak(reply)
 
 
-APP_BUILD = "14.2"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "14.3"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -3487,6 +3530,8 @@ DEFAULT_SETTINGS = {
     # ---- AI Coach footage recorder (Phase 3) ----
     "autoRecord": True,             # auto start/stop the recorder during matches
     "fullMatchRecording": True,     # True = record the WHOLE match; False = rolling 60s highlight clips
+    "recordingsMaxGB": 40,          # disk-sensitive auto-cleanup: cap the recordings folder (delete oldest)
+    "recordingsMinFreeGB": 5,       # also keep at least this much free on the disk
     "autoClipMatchEnd": True,       # auto-save the recording when a match ends
     "clipHotkeyEnabled": False,     # global hotkey to save the last N seconds as a clip
     "clipHotkey": "ctrl+alt+c",     # the save-clip combo (OS RegisterHotKey, not a hook)
@@ -6853,7 +6898,13 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/capture/clips":
             if fragroute_capture is None:
                 return self._json({"items": [], "total": 0})
-            return self._json(fragroute_capture.list_clips(_captures_dir()))
+            out = fragroute_capture.list_clips(_captures_dir())
+            try:
+                out["usage"] = fragroute_capture.recordings_usage(_captures_dir())
+                out["capGB"] = float(get_setting("recordingsMaxGB", 40))
+            except Exception:
+                pass
+            return self._json(out)
 
         if path == "/api/learning":
             if fragroute_learning is None:
