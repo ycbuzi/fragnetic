@@ -1040,6 +1040,9 @@
   .auth-toggle a{color:var(--cyan);text-decoration:none;margin-left:6px;cursor:pointer}
   .auth-err{color:#ff5a7a;font-size:12px;min-height:16px;margin:2px 0 8px}
   .auth-foot{margin-top:14px;font-size:10.5px;color:var(--text-mute,#6a6f79);line-height:1.5}
+  .auth-lang{margin-top:18px;text-align:center;font-size:12px}
+  .auth-lang select{background:rgba(255,255,255,.05);border:1px solid var(--border,#2a2a3a);border-radius:7px;
+    color:var(--text-mute,#9aa);font-size:12px;padding:5px 8px;cursor:pointer;outline:none}
   /* header account chip */
   #acctBtn{display:inline-flex;align-items:center;gap:5px}
   .tier-badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.05em;
@@ -2090,15 +2093,20 @@ loadSettingsCache();   // instant: appearance applied before first paint (below)
 try{ applyAppearance(); }catch(e){}   // body exists (script is at end of <body>)
 // populate + wire the language picker, then translate the whole UI to the chosen
 // (or auto-detected) language on first paint.
-function initLangSelect(){
-  const sel=document.getElementById('langSelect'); if(!sel)return;
-  if(!sel.options.length){
-    sel.innerHTML=LANGS.map(([c,n])=>`<option value="${c}">${n}</option>`).join('');
-    sel.addEventListener('change',()=>{
-      try{ saveSetting('lang',sel.value); }catch(e){ SETTINGS.lang=sel.value; saveSettingsCache(); }
-      applyI18n(); });
-  }
-  sel.value=SETTINGS.lang||'auto';
+function _setLang(v){
+  try{ saveSetting('lang',v); }catch(e){ SETTINGS.lang=v; saveSettingsCache(); }
+  ['langSelect','authLangSelect'].forEach(id=>{ const s=document.getElementById(id); if(s)s.value=v; });
+  applyI18n();
+}
+function initLangSelect(){            // wires BOTH the Settings picker and the login-screen one
+  ['langSelect','authLangSelect'].forEach(id=>{
+    const sel=document.getElementById(id); if(!sel)return;
+    if(!sel.options.length){
+      sel.innerHTML=LANGS.map(([c,n])=>`<option value="${c}">${n}</option>`).join('');
+      sel.addEventListener('change',()=>_setLang(sel.value));
+    }
+    sel.value=SETTINGS.lang||'auto';
+  });
 }
 try{ initLangSelect(); applyI18n(); }catch(e){}
 
@@ -5313,6 +5321,7 @@ async function aifSaveOpt(key,val){
       <div class="auth-foot" style="color:#ffcf66">This is the <b>only</b> way to reset your password. Write it down now — it won't be shown again.</div>
       <button class="auth-btn" id="recContinue" data-i18n="I saved it — continue" style="margin-top:14px">I saved it — continue</button>
     </div>
+    <div class="auth-lang">🌐 <select id="authLangSelect" aria-label="Language"></select></div>
   </div>
 </div>
 
@@ -5462,7 +5471,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
   _g('acctClear').onclick = async ()=>{ await _postJ('/api/license/clear', {}); setTimeout(acctOpen, 200); };
   _g('acctLogout').onclick = async ()=>{ await _postJ('/api/auth/logout', {}); _g('acctModal').style.display='none'; authRefresh(); };
   _g('acctPw').onclick = acctChangePw;
-  try{ applyI18n(); }catch(e){}   // full-DOM pass (login gate + modals now exist)
+  try{ initLangSelect(); applyI18n(); }catch(e){}   // wire login-screen language picker + translate gate
   authRefresh();
 });
 </script>
