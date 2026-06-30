@@ -69,6 +69,14 @@ def _norm(u):
     return (u or "").strip().lower()
 
 
+def _gen_recovery():
+    """A one-time recovery code shown at signup (offline password reset). Avoids
+    look-alike characters so it's easy to write down."""
+    import secrets
+    alpha = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "-".join("".join(secrets.choice(alpha) for _ in range(4)) for _ in range(4))
+
+
 def _public(rec):
     """Account fields safe to expose to the UI (never the hash/salt)."""
     return {"username": rec.get("username"), "email": rec.get("email", ""),
@@ -134,6 +142,11 @@ def register(username, password, email="", license_key=""):
                "salt": base64.b64encode(salt).decode(), "hash": _hash(password, salt),
                "role": "owner" if not users else "user",
                "created": int(time.time()), "cloud": False}
+        # one-time recovery code (stored hashed; returned in plaintext just this once)
+        recovery = _gen_recovery()
+        rsalt = os.urandom(16)
+        rec["rsalt"] = base64.b64encode(rsalt).decode()
+        rec["recovery"] = _hash(recovery, rsalt)
         if license_key:
             info = L.verify_key(license_key)
             if not info.get("valid"):
@@ -149,7 +162,7 @@ def register(username, password, email="", license_key=""):
         users[_norm(username)] = rec
         _save(d)
     _start_session(rec)
-    return {"ok": True, "user": _public(rec)}
+    return {"ok": True, "user": _public(rec), "recovery": recovery}
 
 
 def login(username, password):
@@ -195,6 +208,29 @@ def change_password(old, new):
         rec["salt"] = base64.b64encode(salt).decode(); rec["hash"] = _hash(new, salt)
         _save(d)
     return {"ok": True}
+
+
+def reset_password(username, code, new_password):
+    """Reset a forgotten password using the recovery code shown at signup. The
+    used code is rotated so it can't be replayed."""
+    if len(new_password or "") < MIN_PW:
+        return {"ok": False, "error": "new password must be at least %d characters" % MIN_PW}
+    with _LOCK:
+        d = _load()
+        rec = d.get("users", {}).get(_norm(username))
+        if not rec or not rec.get("recovery") or not rec.get("rsalt"):
+            return {"ok": False, "error": "no recovery code on file for that account"}
+        if _hash((code or "").strip().upper(), base64.b64decode(rec["rsalt"])) != rec["recovery"]:
+            return {"ok": False, "error": "recovery code is incorrect"}
+        salt = os.urandom(16)
+        rec["salt"] = base64.b64encode(salt).decode()
+        rec["hash"] = _hash(new_password, salt)
+        new_code = _gen_recovery()                      # rotate so the used code dies
+        rsalt = os.urandom(16)
+        rec["rsalt"] = base64.b64encode(rsalt).decode()
+        rec["recovery"] = _hash(new_code, rsalt)
+        _save(d)
+    return {"ok": True, "recovery": new_code}
 
 
 def attach_license(license_key):

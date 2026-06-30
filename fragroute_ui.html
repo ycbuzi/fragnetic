@@ -1018,8 +1018,11 @@
   body.render-paused #fxLayer{opacity:0!important}
 
   /* ===== Account / login gate + entitlement ===== */
-  .auth-gate{position:fixed;inset:0;z-index:9000;display:flex;align-items:center;justify-content:center;
+  .auth-gate{position:fixed;inset:0;z-index:9000;display:flex;align-items:center;justify-content:center;overflow-y:auto;padding:24px 0;
     background:radial-gradient(circle at 50% 30%,rgba(22,16,32,.92),rgba(8,8,14,.97));backdrop-filter:blur(6px)}
+  body.auth-locked{overflow:hidden!important}   /* no scrolling the app behind the login */
+  .rec-code{font-family:'JetBrains Mono',monospace;font-size:18px;letter-spacing:.12em;color:var(--cyan);
+    background:rgba(47,240,212,.08);border:1px dashed var(--cyan);border-radius:9px;padding:14px;margin:12px 0;user-select:all;word-break:break-all}
   .auth-card{width:340px;max-width:90vw;background:var(--panel,#14141f);border:1px solid var(--border,#2a2a3a);
     border-radius:16px;padding:30px 26px;box-shadow:0 24px 70px rgba(0,0,0,.6);text-align:center}
   .auth-brand{font-family:'Audiowide',cursive;font-size:30px;color:var(--pink);text-shadow:0 0 18px var(--pink-glow);letter-spacing:.04em}
@@ -1327,7 +1330,7 @@
       <button class="mini-btn" id="newsRefreshBtn">Refresh</button>
     </div>
   </div>
-  <div class="tab-intro">Live FragPunk news pulled from the official site, Steam, and YouTube. Pick which sources and how many stories in Settings; <kbd>Diagnose</kbd> checks why a feed won't load (usually a VPN tunnel blocking it).</div>
+  <div class="tab-intro">Live FragPunk news — official, Steam &amp; YouTube. Tune sources in Settings · <kbd>Diagnose</kbd> if a feed won't load.</div>
   <div class="news-note" id="newsNote">Loading the latest official Fragpunk news and videos&hellip;</div>
   <div class="news-grid" id="newsGrid"></div>
   </div><!-- /pane news -->
@@ -1387,7 +1390,7 @@
   <!-- ===================== WEAPONS PANE ===================== -->
   <div class="tab-pane" data-pane="weapons">
     <div class="section-title"><span>Weapon Catalog</span></div>
-    <div class="tab-intro">Each weapon shows your <b>cosmetic skins</b> as an auto-shuffling preview. Skins are saved <b>inside the app</b> (a portable file), so they're kept even if the original screenshots are gone and they travel to another PC. Hover a card and hit <b>＋</b> to add a screenshot, or <b>⋯</b> to manage.</div>
+    <div class="tab-intro">Your skins auto-shuffle per weapon, saved in-app (portable). Hover a card: <b>＋</b> add a screenshot · <b>⋯</b> manage.</div>
     <div class="lc-note" id="wpNote">Loading…</div>
     <div class="wp-grid" id="wpGrid"><div class="an-empty">Loading…</div></div>
   </div><!-- /pane weapons -->
@@ -1454,7 +1457,7 @@
     </div>
     <div class="br-cur" id="brCur" title="Current page"></div>
     <div class="br-links" id="brLinks"></div>
-    <div class="br-note" id="brNote">Opens the site <b>inside FRAGROUTE</b>, in this tab, using the app's own engine — works for any site (Google, YouTube, logins, anything) and connects reliably. It stays docked in this tab and <b>resizes with the window</b> (drag any edge of FRAGROUTE, maximize, or snap it), hides when you switch tabs, never spills outside the app, and <b>everything</b> — cookies, history, URLs, cache — is <b>erased the moment you close FRAGROUTE</b>.</div>
+    <div class="br-note" id="brNote">Private in-app browser for any site. Docks here, resizes with the window, and wipes everything (cookies, history, cache) when you close Fragnetic.</div>
     <div class="br-frame-wrap" id="brFrameWrap" style="display:none">
       <iframe class="br-frame" id="brFrame" referrerpolicy="no-referrer"></iframe>
       <div class="br-blocked" id="brBlocked" style="display:none">This site blocked inline embedding. <button class="mini-btn" id="brBlockedPop">Open in private window ↗</button></div>
@@ -1511,7 +1514,7 @@
       <div class="section-title" style="margin-top:14px"><span>🎨 AI Image Generator</span>
         <span class="ai-badge" id="igBadge">checking…</span>
       </div>
-      <div class="ai-note">Generate crosshairs, profile/skin art, or strategy diagrams locally on your 4070 — no internet, no account. Type what you want and hit Generate.</div>
+      <div class="ai-note">Generate crosshairs, art, or strategy diagrams locally — no internet, no account. Describe it, hit Generate.</div>
       <div class="ai-bar">
         <input class="ai-input" id="igPrompt" placeholder="e.g. a sleek neon cyan crosshair on transparent background" autocomplete="off">
         <button class="mini-btn" id="igGo">Generate</button>
@@ -1525,7 +1528,7 @@
   <div class="tab-pane" data-pane="vision">
     <div class="ai-imggen" id="aiMaps">
       <div class="section-title" style="margin-top:14px"><span>🗺️ Maps &amp; Vision</span></div>
-      <div class="ai-note">The AI looks at your screen with vision. It auto-snaps a map shot each match; use these to identify what's on screen or get a read on the current map's angles &amp; positions.</div>
+      <div class="ai-note">AI reads your screen. Auto-snaps a map each match — get the angles &amp; positions, or ask what's on screen.</div>
       <div class="aif-btns" style="margin-bottom:8px">
         <button class="mini-btn" id="mvRecognize" title="Identify weapons/lancers/abilities/map on your screen now">👁 What's on my screen</button>
         <button class="mini-btn" id="mvMap" title="Snap &amp; analyze the current map area">🗺️ Capture this map</button>
@@ -1590,7 +1593,7 @@
     <div class="section-title"><span>🧩 Setup &amp; Readiness</span>
       <div class="right"><span id="setReady" class="ai-badge">—</span><button class="mini-btn" id="setRefresh">↻</button></div>
     </div>
-    <div class="ai-note">Everything FRAGROUTE can do, and whether it's ready on this PC. Green = good; amber = optional component missing (with how to fix). The app works with whatever's installed — missing pieces just disable their feature.</div>
+    <div class="ai-note">What's ready on this PC. Green = good · amber = optional piece missing (with the fix). Missing pieces just disable their own feature.</div>
     <div id="setList" class="set-list"></div>
     <div class="section-title" style="margin-top:14px"><span>📦 Model downloads</span>
       <div class="right"><span id="setDlMB" class="ai-badge">—</span><button class="mini-btn" id="setDlAll">⬇ Download all missing</button></div>
@@ -1604,10 +1607,10 @@
     <div class="section-title"><span>Resource Monitor</span>
       <div class="right">
         <button class="mini-btn" id="hlCopy" title="Copy a full diagnostics report (subsystems + recent errors) to send for troubleshooting">Copy report</button>
-        <button class="mini-btn" id="hlQuit" title="Fully quit FRAGROUTE (closes the recorder + tunnels and exits — not just minimize to tray)" style="border-color:#ff5c8a;color:#ff9db5">⏻ Quit</button>
+        <button class="mini-btn" id="hlQuit" title="Fully quit Fragnetic (closes the recorder + tunnels and exits — not just minimize to tray)" style="border-color:#ff5c8a;color:#ff9db5">⏻ Quit</button>
       </div>
     </div>
-    <div class="hl-note">FRAGROUTE's own footprint, so you can confirm it stays out of your game's way. It runs below-normal priority and only samples while this tab is open — closing the tab stops all polling. Full subsystem diagnostics run silently in the background (written to a log); use <b>Copy report</b> if something needs troubleshooting.</div>
+    <div class="hl-note">Fragnetic's own resource use, so you can confirm it stays out of your game's way. Only this tab polls — close it while you play. <b>Copy report</b> for troubleshooting.</div>
 
     <!-- compact live readouts -->
     <div class="hl-stats" id="hlStats">
@@ -3332,7 +3335,7 @@ function renderReplays(){
   if(!items.length){list.innerHTML='<div class="an-empty">No replays found yet. FragPunk saves one per match under its Saved\\Demos folder.</div>';return;}
   if(_rpOnlyReview)items=items.filter(it=>it.review&&!it.reviewed);
   const revN=((_REPLAYS.items)||[]).filter(it=>it.review&&!it.reviewed).length;
-  document.getElementById('rpNote').innerHTML=(_REPLAYS.items.length)+' replays · <b>'+revN+'</b> flagged to review · RP/region fill in as you play with FRAGROUTE running';
+  document.getElementById('rpNote').innerHTML=(_REPLAYS.items.length)+' replays · <b>'+revN+'</b> flagged to review · RP/region fill in as you play with Fragnetic running';
   if(!items.length){list.innerHTML='<div class="an-empty">Nothing flagged for review. Star a match to add it.</div>';return;}
   list.innerHTML=items.map(it=>{
     const rp=it.rpDelta;
@@ -3378,7 +3381,7 @@ function rpSave(id,patch,inp){
 // ====================== PRIVATE BROWSER ======================
 // In-app tab. Sites that allow framing preview inline; the rest (and the full
 // privacy guarantee) open in an app-managed window on a throwaway profile that
-// is DELETED when FRAGROUTE closes. Cookies work in-session, nothing persists.
+// is DELETED when Fragnetic closes. Cookies work in-session, nothing persists.
 const BR_LINKS=[["YouTube","https://youtube.com"],["Google","https://google.com"],
   ["FragPunk","https://fragpunk.com/news"],["Tracker","https://fragpunk.gg"],
   ["Reddit","https://reddit.com/r/PlayFragPunk"],["Twitch","https://twitch.tv/directory/game/FragPunk"]];
@@ -3397,7 +3400,7 @@ function _brNormalize(u){
   return 'https://www.google.com/search?q='+encodeURIComponent(u);
 }
 // Primary action: open the site INSIDE the app (docked inline preview, which
-// resizes with the FRAGROUTE window). Only falls back to a separate window when
+// resizes with the Fragnetic window). Only falls back to a separate window when
 // there's no in-app engine (e.g. the Edge app-mode fallback, not pywebview).
 function brGo(){
   const u=(document.getElementById('brUrl').value||'').trim();
@@ -3666,8 +3669,8 @@ function renderHealth(h){
       const light=(proc.cpuPct==null)||(proc.cpuPct<=15);
       imp.style.display=''; imp.className='hl-impact'+(light?' ok':'');
       imp.innerHTML = light
-        ? '🎮 <b>FragPunk is running</b> and FRAGROUTE is staying light ('+(proc.cpuPct==null?'minimal':proc.cpuPct+'%')+' CPU, below-normal priority). This tab is the only thing that polls, so leave it closed while you play.'
-        : '⚠️ <b>FRAGROUTE is using '+proc.cpuPct+'% CPU while FragPunk runs.</b> Close this tab (stops polling) and avoid Locker/Route mid-match; background scans already slow down in a match.';
+        ? '🎮 <b>FragPunk is running</b> and Fragnetic is staying light ('+(proc.cpuPct==null?'minimal':proc.cpuPct+'%')+' CPU, below-normal priority). This tab is the only thing that polls, so leave it closed while you play.'
+        : '⚠️ <b>Fragnetic is using '+proc.cpuPct+'% CPU while FragPunk runs.</b> Close this tab (stops polling) and avoid Locker/Route mid-match; background scans already slow down in a match.';
     } else { imp.style.display='none'; }
   }
   renderSubsystems(h.subsystems||{});
@@ -3760,7 +3763,7 @@ function drawHealthGraph(){
 function copyHealthReport(){
   const h=_hlLast; if(!h){toast('Open this tab a moment first','warn');return;}
   const lines=[];
-  lines.push('FRAGROUTE diagnostics — build '+h.build);
+  lines.push('Fragnetic diagnostics — build '+h.build);
   lines.push('overall: '+(h.ok?'HEALTHY':'ISSUES')+'  uptime: '+_hlDur(h.uptimeSec));
   const p=h.proc||{}; lines.push('cpu: '+(p.cpuPct==null?'?':p.cpuPct+'%')+'  mem: '+(p.memMB==null?'?':p.memMB+'MB')+'  threads: '+(p.threads||'?'));
   const g=h.game||{}; lines.push('FragPunk: '+(g.running?(g.foreground?'playing(focused)':'running'):'not running'));
@@ -3781,7 +3784,7 @@ function copyHealthReport(){
 (function(){
   const c=document.getElementById('hlCopy'); if(c)c.addEventListener('click',copyHealthReport);
   const q=document.getElementById('hlQuit'); if(q)q.addEventListener('click',async()=>{
-    if(!confirm('Fully quit FRAGROUTE? (closes the recorder + tunnels and exits)'))return;
+    if(!confirm('Fully quit Fragnetic? (closes the recorder + tunnels and exits)'))return;
     try{ await fetch(API+'/api/quit',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); toast('Quitting…','ok'); }catch(e){}
   });
 })();
@@ -5154,15 +5157,25 @@ async function aifSaveOpt(key,val){
 <div id="authGate" class="auth-gate" style="display:none">
   <div class="auth-card">
     <div class="auth-brand">FRAG<span>NETIC</span></div>
-    <div class="auth-sub" id="authSub">Sign in to continue</div>
-    <div id="authErr" class="auth-err"></div>
-    <input id="authUser" class="auth-in" placeholder="Username" autocomplete="username" spellcheck="false">
-    <input id="authPass" class="auth-in" type="password" placeholder="Password" autocomplete="current-password">
-    <input id="authEmail" class="auth-in" placeholder="Email (optional)" style="display:none" spellcheck="false">
-    <input id="authLicense" class="auth-in" placeholder="License key (optional)" style="display:none" spellcheck="false">
-    <button id="authSubmit" class="auth-btn">Sign in</button>
-    <div class="auth-toggle"><span id="authToggleTxt">New here?</span><a id="authToggle">Create an account</a></div>
-    <div class="auth-foot">Your account &amp; password stay on this PC. Paid features unlock with a license key — start with a free trial.</div>
+    <div id="authForm">
+      <div class="auth-sub" id="authSub">Sign in to continue</div>
+      <div id="authErr" class="auth-err"></div>
+      <input id="authUser" class="auth-in" placeholder="Username" autocomplete="username" spellcheck="false">
+      <input id="authCode" class="auth-in" placeholder="Recovery code" style="display:none" spellcheck="false">
+      <input id="authPass" class="auth-in" type="password" placeholder="Password" autocomplete="current-password">
+      <input id="authEmail" class="auth-in" placeholder="Email (optional)" style="display:none" spellcheck="false">
+      <input id="authLicense" class="auth-in" placeholder="License key (optional)" style="display:none" spellcheck="false">
+      <button id="authSubmit" class="auth-btn">Sign in</button>
+      <div class="auth-toggle"><span id="authToggleTxt">New here?</span><a id="authToggle">Create an account</a></div>
+      <div class="auth-toggle" id="authForgotRow"><a id="authForgot">Forgot password?</a></div>
+      <div class="auth-foot">Your account &amp; password stay on this PC. Paid features unlock with a license key — start with a free trial.</div>
+    </div>
+    <div id="authRecovery" style="display:none">
+      <div class="auth-sub" id="recTitle">Save your recovery code</div>
+      <div class="rec-code" id="recCode">—</div>
+      <div class="auth-foot" style="color:#ffcf66">This is the <b>only</b> way to reset your password. Write it down now — it won't be shown again.</div>
+      <button class="auth-btn" id="recContinue" style="margin-top:14px">I saved it — continue</button>
+    </div>
   </div>
 </div>
 
@@ -5187,7 +5200,9 @@ async function aifSaveOpt(key,val){
 
 <script>
 // ===================== Accounts + entitlements =====================
-let AUTH_MODE = 'login', ENT = null;
+let AUTH_MODE = 'login', ENT = null, _RECOVERY_NEXT = 'enter';
+function _hideGate(){ _g('authGate').style.display='none'; document.body.classList.remove('auth-locked'); }
+function _showGate(){ _g('authGate').style.display='flex'; document.body.classList.add('auth-locked'); }
 const _g = (id) => document.getElementById(id);
 const _v = (id) => (_g(id).value || '').trim();
 async function _postJ(path, body){
@@ -5198,35 +5213,60 @@ async function _postJ(path, body){
 
 function setAuthMode(m){
   AUTH_MODE = m;
-  const reg = m === 'register';
+  const reg = m === 'register', rst = m === 'reset';
+  _g('authForm').style.display = 'block'; _g('authRecovery').style.display = 'none';
   _g('authEmail').style.display = reg ? 'block' : 'none';
   _g('authLicense').style.display = reg ? 'block' : 'none';
-  _g('authSub').textContent = reg ? 'Create your account' : 'Sign in to continue';
-  _g('authSubmit').textContent = reg ? 'Create account' : 'Sign in';
-  _g('authToggleTxt').textContent = reg ? 'Have an account?' : 'New here?';
-  _g('authToggle').textContent = reg ? 'Sign in' : 'Create an account';
-  _g('authPass').setAttribute('autocomplete', reg ? 'new-password' : 'current-password');
+  _g('authCode').style.display = rst ? 'block' : 'none';
+  _g('authPass').placeholder = rst ? 'New password' : 'Password';
+  _g('authSub').textContent = reg ? 'Create your account' : (rst ? 'Reset your password' : 'Sign in to continue');
+  _g('authSubmit').textContent = reg ? 'Create account' : (rst ? 'Reset password' : 'Sign in');
+  _g('authToggleTxt').textContent = rst ? 'Remembered it?' : (reg ? 'Have an account?' : 'New here?');
+  _g('authToggle').textContent = (reg || rst) ? 'Sign in' : 'Create an account';
+  _g('authForgotRow').style.display = (m === 'login') ? 'block' : 'none';
+  _g('authPass').setAttribute('autocomplete', (reg || rst) ? 'new-password' : 'current-password');
   _g('authErr').textContent = '';
 }
 async function authRefresh(){
   let s; try{ s = await (await fetch(API+'/api/auth')).json(); }
   catch(e){ s = {disabled:true, session:{loggedIn:true}}; }
-  if (s.disabled || (s.session && s.session.loggedIn)){ _g('authGate').style.display='none'; refreshEntitlement(); return true; }
+  if (s.disabled || (s.session && s.session.loggedIn)){ _hideGate(); refreshEntitlement(); return true; }
   setAuthMode(s.hasAccount ? 'login' : 'register');
-  _g('authGate').style.display = 'flex';
+  _showGate();
   setTimeout(()=>{ try{_g('authUser').focus();}catch(e){} }, 60);
   return false;
 }
+function showRecovery(code, isReset){
+  _g('authForm').style.display = 'none';
+  _g('authRecovery').style.display = 'block';
+  setText(_g('recTitle'), isReset ? 'Reset done — new recovery code' : 'Save your recovery code');
+  setText(_g('recCode'), code || '—');
+  _RECOVERY_NEXT = isReset ? 'login' : 'enter';
+}
 async function authSubmit(){
-  const u = _v('authUser'), p = _v('authPass'), err = _g('authErr');
+  const err = _g('authErr');
+  if (AUTH_MODE === 'reset'){
+    const u = _v('authUser'), c = _v('authCode'), np = _v('authPass');
+    if (!u || !c || !np){ err.textContent = 'Fill in username, recovery code, and a new password.'; return; }
+    _g('authSubmit').disabled = true;
+    const r = await _postJ('/api/auth/reset', {username:u, code:c, new:np});
+    _g('authSubmit').disabled = false;
+    if (r && r.ok){ _g('authPass').value=''; _g('authCode').value=''; showRecovery(r.recovery, true); }
+    else err.textContent = (r && r.error) || 'Could not reset password.';
+    return;
+  }
+  const u = _v('authUser'), p = _v('authPass');
   if (!u || !p){ err.textContent = 'Enter a username and password.'; return; }
   _g('authSubmit').disabled = true;
   let r;
   if (AUTH_MODE === 'register') r = await _postJ('/api/auth/register', {username:u, password:p, email:_v('authEmail'), license:_v('authLicense')});
   else r = await _postJ('/api/auth/login', {username:u, password:p});
   _g('authSubmit').disabled = false;
-  if (r && r.ok){ _g('authPass').value=''; _g('authGate').style.display='none'; refreshEntitlement(); }
-  else err.textContent = (r && r.error) || 'Could not sign in.';
+  if (r && r.ok){
+    _g('authPass').value = '';
+    if (AUTH_MODE === 'register' && r.recovery) showRecovery(r.recovery, false);  // make them save it first
+    else { _hideGate(); refreshEntitlement(); }
+  } else err.textContent = (r && r.error) || 'Could not sign in.';
 }
 
 async function refreshEntitlement(){
@@ -5273,6 +5313,9 @@ async function acctChangePw(){
 window.addEventListener('DOMContentLoaded', ()=>{
   _g('authSubmit').onclick = authSubmit;
   _g('authToggle').onclick = (e)=>{ e.preventDefault(); setAuthMode(AUTH_MODE === 'login' ? 'register' : 'login'); };
+  _g('authForgot').onclick = (e)=>{ e.preventDefault(); setAuthMode('reset'); };
+  _g('authCode').addEventListener('keydown', e=>{ if (e.key === 'Enter') _g('authPass').focus(); });
+  _g('recContinue').onclick = ()=>{ if (_RECOVERY_NEXT === 'login'){ setAuthMode('login'); } else { _hideGate(); refreshEntitlement(); } };
   _g('authPass').addEventListener('keydown', e=>{ if (e.key === 'Enter') authSubmit(); });
   _g('authUser').addEventListener('keydown', e=>{ if (e.key === 'Enter') _g('authPass').focus(); });
   _g('acctBtn').onclick = acctOpen;

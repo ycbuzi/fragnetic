@@ -832,7 +832,7 @@ def voice_command():
     _speak(reply)
 
 
-APP_BUILD = "13.0"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "13.1"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -7058,6 +7058,12 @@ class Handler(BaseHTTPRequestHandler):
             if fragroute_auth is None:
                 return self._json({"ok": False, "error": "auth unavailable"}, 500)
             return self._json(fragroute_auth.change_password(body.get("old", ""), body.get("new", "")))
+
+        if path == "/api/auth/reset":
+            if fragroute_auth is None:
+                return self._json({"ok": False, "error": "auth unavailable"}, 500)
+            return self._json(fragroute_auth.reset_password(
+                body.get("username", ""), body.get("code", ""), body.get("new", "")))
 
         # ---- licensing / entitlements -------------------------------------
         if path == "/api/license/verify":
