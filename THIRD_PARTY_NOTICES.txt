@@ -1,0 +1,78 @@
+FRAGROUTE — Third-Party Notices & Licenses
+===========================================
+
+This product bundles or uses the third-party components listed below. Each is
+the property of its respective owner and is provided under its own license. For
+GPL/LGPL components, the corresponding source is available on request and from
+the upstream project. Nothing here grants rights to FragPunk (NetEase) IP.
+
+-----------------------------------------------------------------------------
+RUNTIMES / ENGINES
+-----------------------------------------------------------------------------
+llama.cpp (LLM inference server)            License: MIT
+  https://github.com/ggml-org/llama.cpp
+
+stable-diffusion.cpp (image generation)     License: MIT
+  https://github.com/leejet/stable-diffusion.cpp
+
+whisper.cpp (speech-to-text)                License: MIT
+  https://github.com/ggml-org/whisper.cpp
+
+ONNX Runtime (YOLO/vision inference)        License: MIT
+  https://github.com/microsoft/onnxruntime
+
+-----------------------------------------------------------------------------
+MODELS  (verify each remains commercial-OK before shipping)
+-----------------------------------------------------------------------------
+Qwen2.5-14B-Instruct (text, "smart")        License: Apache-2.0   [commercial OK]
+Qwen2.5-1.5B-Instruct (text, "fast")        License: Apache-2.0   [commercial OK]
+Qwen2-VL-2B-Instruct (vision)               License: Apache-2.0   [commercial OK]
+  NOTE: do NOT ship Qwen2.5-3B or Qwen2.5-VL-3B — those are under the Qwen
+  Research License (NON-COMMERCIAL) and were removed for this reason.
+
+Whisper model (ggml-base.en)                License: MIT          [commercial OK]
+  https://github.com/openai/whisper
+
+Stable Diffusion v1.5 (image gen)           License: CreativeML OpenRAIL-M
+  Commercial use permitted WITH the OpenRAIL use-restrictions (Attachment A).
+  https://huggingface.co/runwayml/stable-diffusion-v1-5
+
+YOLOX (object detection)                    License: Apache-2.0   [commercial OK]
+  https://github.com/Megvii-BaseDetection/YOLOX
+  NOTE: Ultralytics YOLOv5/v8/v11 are AGPL-3.0 and are intentionally NOT used —
+  AGPL would require open-sourcing this app or a paid Ultralytics license.
+
+-----------------------------------------------------------------------------
+TOOLS / BINARIES
+-----------------------------------------------------------------------------
+FFmpeg                                       License: LGPL-2.1+ (LGPL build)
+  Ship the LGPL build (e.g. BtbN "win64-lgpl"), NOT a GPL build. NVENC included.
+  As a dynamically-linked, separately-distributed executable this is "mere
+  aggregation." Corresponding source: https://ffmpeg.org / https://github.com/BtbN/FFmpeg-Builds
+  "FFmpeg" is a trademark of Fabrice Bellard.
+
+WireGuard (wireguard.exe / tooling)          License: GPL-2.0
+  Bundled as a SEPARATE, unmodified executable (mere aggregation) and invoked as
+  a subprocess — not linked into the app. The full GPLv2 text and corresponding
+  source are provided/available on request and from https://www.wireguard.com .
+  "WireGuard" is a registered trademark of Jason A. Donenfeld. This product is
+  not sponsored by or affiliated with the WireGuard project.
+
+-----------------------------------------------------------------------------
+DATA
+-----------------------------------------------------------------------------
+GeoIP database (optional, offline)
+  If bundling DB-IP Lite:  License: CC-BY-4.0  — REQUIRED attribution:
+    "IP Geolocation by DB-IP (https://db-ip.com)"
+  If bundling MaxMind GeoLite2: subject to the GeoLite2 EULA + attribution:
+    "This product includes GeoLite2 data created by MaxMind, https://www.maxmind.com"
+  The non-commercial ip-api.com endpoint is OFF by default and must NOT be
+  enabled in a build that is sold.
+
+-----------------------------------------------------------------------------
+IMPORTANT — GAME IP / TERMS
+-----------------------------------------------------------------------------
+FragPunk and all related names, art, and logos are the property of NetEase.
+This product is an independent companion tool, not affiliated with or endorsed
+by NetEase. Review FragPunk's Terms of Service before distributing a paid tool
+that reads game data; this notices file does not constitute legal advice.

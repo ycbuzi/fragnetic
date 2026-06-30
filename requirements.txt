@@ -1,0 +1,9 @@
+# FRAGROUTE desktop app -- optional deps for the full native experience.
+# The app still runs without these (it falls back to an Edge/Chrome app window),
+# but installing them gives you the native window + system-tray controls,
+# and they're required to build FRAGROUTE.exe.
+
+pywebview>=5.0      # native desktop window (uses the built-in WebView2 runtime)
+pystray>=0.19       # system-tray icon + menu
+pillow>=10.0        # renders the tray icon and generates the app icon
+pyinstaller>=6.0    # only needed to build the .exe

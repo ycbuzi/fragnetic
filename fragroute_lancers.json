@@ -1,0 +1,274 @@
+{
+  "lancers": {
+    "BROKER": {
+      "tags": [
+        "Skill Damage",
+        "Vision Control",
+        "Trap Placement"
+      ],
+      "abilities": {
+        "GODDARD'S VENGEANCE": "A shoulder-launched rocket that causes explosive damage and knocks back enemies who are within a certain range.",
+        "SMOKESTACK LIGHTNING": "Throwable gadget that generates a smoke screen around the projectile.",
+        "CHERRY BOMB": "A throwable device that generates several energy bombs on the ground. The bombs are triggered by approach, but detonate after a delay."
+      },
+      "stats": {}
+    },
+    "NITRO": {
+      "tags": [
+        "Fortification",
+        "Defense",
+        "Trap Placement"
+      ],
+      "abilities": {
+        "CHUG CHUG": "Deploys a multi-function tactical drone that can be controlled remotely.",
+        "MR. PEWPEW": "Throws a sentry turret that fires automatically.",
+        "THE WALL": "Places a wall of shields formed by pieces of cover across the designated location."
+      },
+      "stats": {}
+    },
+    "HOLLOWPOINT": {
+      "tags": [
+        "Trap Placement"
+      ],
+      "abilities": {
+        "METEORA": "A charging sniper rifle: hold to charge for massive damage (a full charge deals ~150 — a one-shot on most Lancers without HP shard cards). The scope has variable zoom and marks every enemy in its sight. ~2 uses per round, replenishing over time.",
+        "SMOKE SCREEN": "A rolling cloud that advances forward and reveals any enemy caught inside; press again to freeze it in place as a temporary vision-blocking wall. ~2 uses per round.",
+        "PAPARAZZI": "A trap that automatically attaches to a nearby enemy and keeps them revealed; the marked enemy can destroy/remove it by interacting. ~2 uses per round."
+      },
+      "stats": {}
+    },
+    "JAGUAR": {
+      "tags": [
+        "Trap Placement",
+        "Vision Control"
+      ],
+      "abilities": {
+        "LIVE WIRE": "Deploys an electric trap that deals damage and slows nearby enemies.",
+        "ELECTRIC AVENUE": "Summons an electrical cage around the enemies in front of Jaguar, blocking their vision.",
+        "I CAN SEE FOR MILES": "Displays the number of enemies ahead, and detects enemies who are low on health or affected by Jaguar's skill. Increases movement speed."
+      },
+      "stats": {}
+    },
+    "CHUM": {
+      "tags": [
+        "Trap Placement",
+        "Skill Damage",
+        "Vision Control"
+      ],
+      "abilities": {
+        "CHOMPER": "Release Chum's best friend, Chomper! He patrols the area he's deployed in and chases down enemies to bite them. Destructible. Feed Chomper different baits to make him enter different modes.",
+        "EXPLOSIVE BAIT": "Place explosive bait that sticks to walls and explodes when triggered. Fed this bait, Chomper enters Explosive Mode and follows Chum, charging enemies to explode on contact.",
+        "SMOKING BAIT": "Throw bait that generates smoke on impact. Fed this bait, Chomper enters Smoke Mode, releasing a constant stream of smoke; hold fire to control his direction."
+      },
+      "stats": {}
+    },
+    "CORONA": {
+      "tags": [
+        "Teleportation",
+        "Area Delay",
+        "Frontal Assault"
+      ],
+      "abilities": {
+        "FAST LANE": "Dash forwards a short distance. The dash distance is shorter when moving sideways.",
+        "ASHES ASHES": "Throws a device that creates a war zone where it hits (damage reduction in the zone).",
+        "HOTHEAD": "After a short charge, blinds all enemies looking directly at Corona."
+      },
+      "stats": {}
+    },
+    "SERKET": {
+      "tags": [
+        "Vision Control",
+        "Area Delay",
+        "Teleportation"
+      ],
+      "abilities": {
+        "STATION STATION": "Conceals Serket and lets her control the beacon for a limited time. Activating it teleports her to its location. Enemies in the beacon's view show as sandstorms; teleporting/canceling generates a sandstorm at the beacon.",
+        "GOLD DUST WOMAN": "Releases a dust tornado that moves forward slowly, slowing enemies in range.",
+        "DILEMMA": "Throwable gadget that drags enemies in range towards it."
+      },
+      "stats": {}
+    },
+    "PATHOJEN": {
+      "tags": [
+        "Health Recovery",
+        "Fortification",
+        "Defense"
+      ],
+      "abilities": {
+        "EMOTIONAL RESCUE": "Deploys a healing field that restores HP over time to Pathojen and allies standing within its range.",
+        "SHROOM WALL": "Builds a destructible fungal wall to block a path or create instant cover.",
+        "KILLER QUEEN": "Places a fungal trap that deals poison damage over time to enemies when triggered.",
+        "CHEMICAL ROMANCE": "Passive: Pathojen is immune to all poison-based attacks and traps (including her own)."
+      },
+      "stats": {}
+    },
+    "ZEPHYR": {
+      "tags": [
+        "Assassin",
+        "Area Delay",
+        "Teleportation"
+      ],
+      "abilities": {
+        "MIDNIGHT RAMBLER": "Enter optical cloaking mode, increasing movement speed. Only melee weapons can be used in this mode.",
+        "FADEAWAY": "Creates an area in which Zephyr is fully invisible during Midnight Rambler. Her cloaking time is unlimited in this area.",
+        "GET BACK": "Deploys a dagger beacon. Reactivate to teleport to it after a short delay. Using this ends the invisibility of Midnight Rambler."
+      },
+      "stats": {}
+    },
+    "SPIDER": {
+      "tags": [
+        "Teleportation",
+        "Area Delay",
+        "Trap Placement"
+      ],
+      "abilities": {
+        "TELEPORTER": "Place two teleporters. Spider can recall them remotely.",
+        "SPIRITED AWAY": "Throw a teleportation trap that takes effect after a short delay, teleporting enemies and allied converters in range to where Spider initially used the skill.",
+        "SPIDER WEB": "Place a disorienting trap. Enemies who trigger it are briefly blinded, exposed, and slowed."
+      },
+      "stats": {}
+    },
+    "KISMET": {
+      "tags": [
+        "Detection",
+        "Skill Damage"
+      ],
+      "abilities": {
+        "HELLO, GOODBYE": "Summons a circular sigil in front, revealing enemies within. Moving enemies take damage over time while revealed.",
+        "MISERY ANGEL": "Throw a bomb that continuously pulls in nearby enemies and, after a short delay, deals damage to enemies in range. This damage ignores walls and barricades.",
+        "WALK ON THE WILD SIDE": "Enters Rift Walk mode, becoming invisible and invulnerable, but unable to see other Lancers."
+      },
+      "stats": {}
+    },
+    "AXON": {
+      "tags": [
+        "Skill Damage",
+        "Frontal Assault"
+      ],
+      "abilities": {
+        "ELECTRIC GUITAR": "Equip a modified double-barrel guitar shotgun that deals high damage to close-range enemies. Can throw two sticky grenades by holding aim. While equipped, Axon can slide.",
+        "STICKY FINGERS": "Throws a bouncing sticky grenade that bounces off surfaces until it sticks to an enemy, or detonates when its timer is up. Two bombs deal ~150 total damage (a kill without HP shard cards).",
+        "SUPER FREAK": "When active, Axon is immune to blinds — flashbangs and other vision-blocking tools don't affect him, so he keeps fighting while everyone else is blinded.",
+        "DARKSLIDE": "Passive: Axon can slide along the ground."
+      },
+      "stats": {}
+    },
+    "SONAR": {
+      "tags": [
+        "Area Delay",
+        "Detection"
+      ],
+      "abilities": {
+        "ECHOLOCATION": "Deploys an echolocation device that periodically reveals surrounding enemies when they move.",
+        "SONIC SURGE": "Launches a sonic wave that exposes all enemies. The wave releases a delayed sonic blast that knocks back, dazes, and further exposes enemies. Hold to charge further.",
+        "SOUND OF SILENCE": "Dampens the footsteps of the player and surrounding teammates. Grants immunity to enemy Echolocation scans."
+      },
+      "stats": {}
+    },
+    "DEX": {
+      "tags": [
+        "Frontal Assault",
+        "Trap Placement",
+        "Teleportation"
+      ],
+      "abilities": {
+        "CLONING INCARNATION": "Deploy a Beacon, transforming Dex into a clone. Costs 20 HP and caps max health at current health. If the clone is killed, or after 15s, Dex returns to the Beacon.",
+        "MIMIC TRAP": "Place a trap that looks like your Beacon. Triggers when destroyed or if an enemy gets too close; slows and damages the enemy.",
+        "SHIELD SCALES": "Grow a layer of scales that absorbs one instance of damage (up to 20). Cannot be stacked; disappears after a period."
+      },
+      "stats": {}
+    },
+    "HURRICANE": {
+      "tags": [
+        "Vision Control",
+        "Area Delay",
+        "Frontal Assault"
+      ],
+      "abilities": {
+        "CYCLONE STORM": "Create a cyclone at the marked position that blocks vision and slows enemies inside. Hold fire to move it; release to set.",
+        "BRANCHING LIGHTNING": "Fires a mini plasma bolt that splits into two smaller bolts after a short delay.",
+        "HEROIC ONSLAUGHT": "Hurricane gathers electricity to power himself up, gradually increasing damage to nearby enemies."
+      },
+      "stats": {}
+    },
+    "AURA": {
+      "tags": [
+        "Health Recovery",
+        "Detection"
+      ],
+      "abilities": {
+        "SOUL BEACON": "Aura equips a Soul Beacon. After pressing FIRE to release it, she possesses an ally to support them. While in this state, Aura cannot be attacked and can control her Soul Beacon: press FIRE to shoot an explosive attack at enemies, or AIM to restore Aura's and the possessed ally's HP. While possessing, Aura can only observe enemies within the ally's sight.",
+        "SOUL GUARDIAN": "Aura gathers energy, gaining 15 extra HP for 20 seconds. While possessing an ally, only that ally gains the effect — Aura herself does not. As long as the extra HP isn't removed by hostile means, it rapidly replenishes.",
+        "HARMONIC TIDE": "Aura strums her instrument to release a sound wave in front of her. It exposes and slows enemies it touches, while increasing the movement speed of allies in its path."
+      },
+      "stats": {}
+    },
+    "IXCHEL": {
+      "tags": [
+        "Skill Silence",
+        "Frontal Assault",
+        "Area Delay"
+      ],
+      "abilities": {
+        "FIGHT IN A CAGE": "Summons a temporary arena that blocks bullets and projectiles. Enemies inside are silenced and cannot use skills. Attacking the arena makes it disappear faster.",
+        "GLADIATOR": "Activates gladiatorial prowess, increasing speed/damage and restoring HP; the lower her HP, the more she can use her skills.",
+        "SPEAR OF KUKULKAN": "Throws her spear, creating a field that pulls enemies down and prevents healing. Hold to charge the throw, increasing range."
+      },
+      "stats": {}
+    },
+    "WILDSTYLE": {
+      "tags": [
+        "Area Delay",
+        "Vision Control",
+        "Detection"
+      ],
+      "abilities": {
+        "WONDERWALL": "Wildstyle places a graffiti device on the ground or on a door, creating a paint waterfall that blocks vision in one direction. The paint does not block bullets or projectiles. Enemies passing through it are covered in paint and Stained — exposed and slowed.",
+        "SPRAY PAINT": "Wildstyle fires paint from her graffiti gun that splatters on the ground. Enemies who enter the paint zone are slowed, exposed, and take increased damage. This Stained effect persists for a short period after leaving the zone, and the zone itself is temporary.",
+        "COAT OF MANY COLORS": "Wildstyle sprays paint on herself or her teammates, granting 15 extra HP. This extra health continuously regenerates for the duration of the skill."
+      },
+      "stats": {}
+    },
+    "WINDWALKER": {
+      "tags": [
+        "Skill Damage",
+        "Teleportation",
+        "Frontal Assault"
+      ],
+      "abilities": {
+        "BLOWIN' IN THE WIND": "Dash in the direction of movement, knocking back and stunning enemies around. After killing an enemy, replenish 1 skill use.",
+        "BLADE OF BROKEN DREAMS": "Slash forwards to unleash two wind blades that boomerang back; can be recalled mid-flight. Charge for three larger blades.",
+        "GIMME SHELTER": "Summons a wind shield that deflects incoming bullets, letting Windwalker move safely across open ground."
+      },
+      "stats": {}
+    },
+    "CALAMITY": {
+      "tags": [
+        "Teleportation",
+        "Area Delay",
+        "Health Recovery"
+      ],
+      "abilities": {
+        "BLOODBANE": "Passive: a portion of all damage Calamity deals is converted into Bloodbane and stored; at maximum, she gains a powerful buff.",
+        "SYMPATHY FOR THE DEVIL": "Consume stored Bloodbane to heal herself.",
+        "ANGEL OF DEATH": "Consume HP to become briefly invincible and pass safely through hazardous areas."
+      },
+      "stats": {}
+    },
+    "COUNTERFEIT": {
+      "tags": [
+        "Detection",
+        "Skill Damage",
+        "Area Delay"
+      ],
+      "abilities": {
+        "THIEVES LIKE US": "Creates a perfect mirage of herself to deceive enemies.",
+        "SHADOWPLAY": "Become temporarily invulnerable (wraith state), letting her traverse dangerous areas safely.",
+        "BOOM BOOM": "Detonate explosions centered on both your mirage and yourself, dealing damage and stunning enemies. Explosions can be triggered in wraith state. The one centered on yourself deals higher damage."
+      },
+      "stats": {}
+    }
+  },
+  "note": "abilities initially OCR'd from Arsenal>Lancer; the missing/garbled ones (HOLLOWPOINT, PATHOJEN, AXON Super Freak/Darkslide, CALAMITY, WINDWALKER Gimme Shelter, COUNTERFEIT) were filled in from online FragPunk references (no guessing).",
+  "source": "loadout-grid OCR + in-game lancer screens; missing abilities + spellings cross-checked online (ability names are music/song references, e.g. Rolling Stones/Queen/MCR)"
+}

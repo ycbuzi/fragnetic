@@ -1,0 +1,37 @@
+{
+  "system": {
+    "summary": "Shard Cards are FragPunk's signature mechanic: per-round modifier cards that change the rules. At the start of each round your team is offered 3 randomly drawn cards (from your collected deck); you spend Shard Points to activate them. Effects buff your team, nerf enemies, or alter the map/weapons.",
+    "points": "Shard Points are earned from performance (kills, objectives) and pooled by the team. Each card shows its cost at the top. A card showing 'N' instead of a number is a VARIABLE card -- its effect scales with how many points you pour into it.",
+    "total_cards": 169,
+    "draft": "You only see 3 cards per round, drawn from your own collection, so building a focused deck means you see your best cards more often.",
+    "strategy": [
+      "Read the round: pick cards that answer what's hurting you (anti-armor vs heavy buys, mobility vs a turtling defense, healing vs poke damage).",
+      "Coordinate as a team -- Shard Points are shared, so agree on which card(s) to fund instead of splitting points across several.",
+      "Economy/value cards compound over a half; tempo cards win one specific round -- spend accordingly.",
+      "Note which cards the enemy activated (shown each round) so you can counter-pick next round.",
+      "Variable ('N') cards are flexible: dump points when you have a surplus, skip when saving for a key card."
+    ]
+  },
+  "categories": {
+    "weapon_damage": "Modify guns/damage: e.g. Big Heads (bigger enemy head hitboxes), Explosive Bullets, Chain Lightning, Ricochet, Vampire Bullet (lifesteal).",
+    "map_environment": "Transform the arena: Tall Grass (stealth/cover everywhere), Floor is Lava (ground damage), Flash Fog (low visibility, favors close range).",
+    "survivability": "Stay alive: extra HP/armor, healing, revive/respawn effects (e.g. Bio-Warrior -- return as a zombie).",
+    "mobility_utility": "Movement & tricks: speed, teleports, wall-pierce (Reaper's Scythe), vision/recon.",
+    "team_comp": "Composition rule changes: Clone Tech (multiple teammates pick the SAME Lancer to stack abilities)."
+  },
+  "notable": [
+    {"name": "Big Heads", "category": "weapon_damage", "effect": "Enlarges enemy head hitboxes -- much easier headshots. Strong if your team hits heads."},
+    {"name": "Vampire Bullet", "category": "weapon_damage", "effect": "Lifesteal on hits -- great for aggressive duelists and sustained fights."},
+    {"name": "Explosive Bullets", "category": "weapon_damage", "effect": "Shots deal area-of-effect explosive damage -- punishes grouped enemies."},
+    {"name": "Chain Lightning", "category": "weapon_damage", "effect": "Bullets arc lightning between nearby enemies -- value when they cluster."},
+    {"name": "Ricochet", "category": "weapon_damage", "effect": "Bullets bounce off surfaces -- corner/area denial and odd angles."},
+    {"name": "Tall Grass", "category": "map_environment", "effect": "Covers the map in vegetation -- stealth and broken sniper sightlines."},
+    {"name": "Floor is Lava", "category": "map_environment", "effect": "Touching the ground deals damage over time -- forces movement/positioning play."},
+    {"name": "Flash Fog", "category": "map_environment", "effect": "Cuts overall visibility -- favors close-quarters Lancers and shotguns."},
+    {"name": "Bio-Warrior", "category": "survivability", "effect": "On death you return as a zombie -- extra value/pressure from a trade."},
+    {"name": "Reaper's Scythe", "category": "mobility_utility", "effect": "Shoot through walls and teleport -- aggressive flanks and wall-bang picks."},
+    {"name": "Clone Tech", "category": "team_comp", "effect": "Multiple teammates can pick the same Lancer -- stack one Lancer's abilities for a devastating combo."}
+  ],
+  "note": "System + categories + notable cards verified from online FragPunk references (169 cards exist in-game; this is a curated subset, not the full list). Used to ground the coach's card advice -- no guessing.",
+  "source": "online FragPunk shard-card guides (PlayerAuctions, 1v9, MitchCactus, GameRant) cross-referenced"
+}

@@ -1,0 +1,44 @@
+{
+  "weapons": {
+    "shotgun": [
+      "Meat Maker",
+      "Boom Broom"
+    ],
+    "smg": [
+      "Clampdown",
+      "Mad Dog-S"
+    ],
+    "assault_rifle": [
+      "Discipline",
+      "Fever"
+    ],
+    "lmg": [
+      "Ghost Pepper",
+      "My Way"
+    ],
+    "marksman": [
+      "Bad Reputation",
+      "Bad Moon-S"
+    ],
+    "sniper": [
+      "Resolver",
+      "Highlife"
+    ],
+    "secondary": [
+      "Blaster",
+      "Flasher",
+      "Smoker",
+      "Burner",
+      "Cure-All",
+      "Vicious",
+      "Cold Shoulder"
+    ],
+    "melee": [
+      "Striker",
+      "Breacher",
+      "Blitzer"
+    ]
+  },
+  "source": "loadout-grid OCR + user correction",
+  "note": "Cure-All, Vicious, Cold Shoulder are secondaries (pistols), not snipers"
+}

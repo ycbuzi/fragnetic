@@ -1,0 +1,71 @@
+# ============================================================
+#  FRAGROUTE .gitignore
+#  CRITICAL: never commit the private signing key, customer
+#  data, the giant models, or the runtime binaries.
+# ============================================================
+
+# --- SECRETS: the license signing key (forges admin keys if leaked) ---
+keys/
+*.pem
+*_private*
+mint_license_out*.txt
+
+# --- AI models (huge; distributed via the in-app Setup installer) ---
+*.gguf
+*.safetensors
+*.ckpt
+*.pth
+*.onnx
+*.bin
+!fragpunk_taxonomy.txt
+
+# --- runtime binary engines (shipped in the release bundle, not git) ---
+llm/
+sd/
+stt/
+yolo/
+clip/
+ffmpeg.exe
+wireguard.exe
+*.zip
+
+# --- build + release artifacts ---
+dist/
+build/
+release/
+__pycache__/
+*.pyc
+*.spec
+assets/fragroute.ico
+assets/fragroute.png
+
+# --- the developer's / customers' PERSONAL data (never ship) ---
+configs/
+fragroute_queue_log.json
+fragroute_settings.json
+fragroute_servers.json
+fragroute_serverpings.json
+fragroute_players.json
+fragroute_rank.json
+fragroute_replays.json
+fragroute_weapon_skins.json
+fragroute_icons.json
+fragroute_generated/
+fragroute_captures/
+fragroute_maps/
+fragroute_diag.log
+*.log
+dataset/
+
+# --- accounts + license state (per-machine; not source) ---
+fragroute_accounts.json
+fragroute_license.json
+.fragroute_trial
+
+# --- editor / OS noise ---
+.vscode/
+.idea/
+*.tmp
+*.part
+Thumbs.db
+.DS_Store
