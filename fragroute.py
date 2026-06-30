@@ -216,24 +216,43 @@ def capture_auto_start(reason="match"):
         diag("capture", False, msg="auto-start", exc=e)
 
 
-def capture_match_end():
-    """At match end: optionally save the final clip. We do NOT stop the recorder
-    here -- match detection can briefly flap (menu blips, reconnects, the firing
-    range), and stopping/restarting each time kills the buffer and produces only
-    tiny fragments. The cheap rolling buffer keeps running; capture_game_closed()
-    stops it when FragPunk actually exits."""
+def _clip_seconds():
+    """Saved-clip length, never below 60s (the user's floor)."""
+    try:
+        return max(60, int(get_setting("clipSeconds", 60)))
+    except Exception:
+        return 60
+
+
+def capture_match_end(match_dur=None):
+    """At match end: save the final clip (gated). We do NOT stop the recorder here
+    -- match detection can briefly flap (menu blips, reconnects, the firing range),
+    and stopping/restarting each time kills the buffer. The rolling buffer keeps
+    running; capture_game_closed() stops it when FragPunk exits.
+
+    Logs the outcome (success AND failure) so a missed recording is never silent,
+    and skips sub-45s 'matches' (a login/menu blip) so the login screen is never
+    saved as a recording."""
     if fragroute_capture is None:
         return
     try:
         if not fragroute_capture.is_recording():
+            diag("capture", True, msg="match-end: not recording; nothing to save")
             return
-        if get_setting("autoClipMatchEnd", False):
-            secs = int(get_setting("clipSeconds", 30))
-            r = fragroute_capture.save_clip(_captures_dir(), secs, "matchend")
-            if r.get("ok"):
-                _notify("Match clip saved", r.get("name", ""))
-    except Exception:
-        pass
+        if not get_setting("autoClipMatchEnd", True):
+            diag("capture", True, msg="match-end: auto-clip OFF; skipped")
+            return
+        if match_dur is not None and match_dur < 45:
+            diag("capture", True, msg="match-end: %ss too short (flap/login) -- not saved" % match_dur)
+            return
+        r = fragroute_capture.save_clip(_captures_dir(), _clip_seconds(), "matchend")
+        if r.get("ok"):
+            diag("capture", True, msg="match clip SAVED: %s" % r.get("name", ""))
+            _notify("Match clip saved", r.get("name", ""))
+        else:
+            diag("capture", False, msg="match-end save FAILED: %s" % r.get("message", "?"))
+    except Exception as e:
+        diag("capture", False, msg="match-end", exc=e)
 
 
 def capture_game_closed():
@@ -242,6 +261,16 @@ def capture_game_closed():
         return
     try:
         if fragroute_capture.is_recording():
+            # Save a final clip BEFORE stopping. Covers the common "I played a few
+            # games then closed FragPunk straight from a match" case, where no clean
+            # match->menu transition ever fired, so nothing got auto-saved.
+            if get_setting("autoClipMatchEnd", True):
+                try:
+                    r = fragroute_capture.save_clip(_captures_dir(), _clip_seconds(), "gameclose")
+                    diag("capture", bool(r.get("ok")),
+                         msg="game-close clip: %s" % (r.get("name") or r.get("message", "")))
+                except Exception:
+                    pass
             fragroute_capture.stop()
             diag("capture", True, msg="stopped (game closed)")
     except Exception:
@@ -254,8 +283,7 @@ def hotkey_save_clip():
         return
     try:
         if fragroute_capture.is_recording():
-            secs = int(get_setting("clipSeconds", 30))
-            r = fragroute_capture.save_clip(_captures_dir(), secs, "hotkey")
+            r = fragroute_capture.save_clip(_captures_dir(), _clip_seconds(), "hotkey")
             _notify("Clip saved" if r.get("ok") else "Clip not saved",
                     r.get("name") or r.get("message", ""))
         else:
@@ -527,7 +555,7 @@ def _build_ai_ctx():
     if fragroute_capture is not None:
         acts["start_recording"] = lambda: fragroute_capture.start(_captures_dir(), {})
         acts["stop_recording"] = fragroute_capture.stop
-        acts["save_clip"] = lambda: fragroute_capture.save_clip(_captures_dir(), 30, "ai")
+        acts["save_clip"] = lambda: fragroute_capture.save_clip(_captures_dir(), _clip_seconds(), "ai")
     if fragroute_knowledge is not None:
         acts["refresh_knowledge"] = lambda: fragroute_knowledge.refresh(force=True)
     if fragroute_imagegen is not None:
@@ -837,7 +865,7 @@ def voice_command():
     _speak(reply)
 
 
-APP_BUILD = "14.0"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "14.1"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -3449,7 +3477,7 @@ DEFAULT_SETTINGS = {
     "autoClipMatchEnd": True,       # auto-save the final seconds when a match ends
     "clipHotkeyEnabled": False,     # global hotkey to save the last N seconds as a clip
     "clipHotkey": "ctrl+alt+c",     # the save-clip combo (OS RegisterHotKey, not a hook)
-    "clipSeconds": 30,              # how many seconds back a saved clip captures
+    "clipSeconds": 60,              # how many seconds back a saved clip captures (>=60s)
     "scoutHotkeyEnabled": False,    # global hotkey: vision-scout the screen + speak it aloud
     "scoutHotkey": "ctrl+alt+x",    # the scout combo (in-game voice readout)
     "voiceCmdHotkeyEnabled": False, # global hotkey: talk to the AI (mic -> whisper -> answer)
@@ -3732,7 +3760,7 @@ def _autodetect_tick():
                 match_mode = AUTODETECT.get("matchMode") or "unknown"
                 if ms:
                     _ad_event("match_ended", durationS=match_dur)
-                capture_match_end()   # auto-save final clip + stop recorder (gated)
+                capture_match_end(match_dur)   # auto-save final clip (gated; skips short flaps)
                 AUTODETECT["matchStartTs"] = None
                 AUTODETECT["currentServer"] = None
                 was_training = AUTODETECT.get("matchIsTraining")
@@ -7361,7 +7389,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/capture/clip":
             if fragroute_capture is None:
                 return self._json({"ok": False, "message": "capture module unavailable"}, 503)
-            secs = int(body.get("seconds", 30)) if body else 30
+            secs = max(60, int(body.get("seconds", 60))) if body else 60
             return self._json(fragroute_capture.save_clip(_captures_dir(), secs, body.get("label") if body else None))
 
         if path == "/api/capture/openfolder":

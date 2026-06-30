@@ -1509,7 +1509,7 @@
         <span class="aif-status" id="aifStatus">Footage capture: checking…</span>
         <div class="aif-btns">
           <button class="mini-btn" id="aifRec" title="Start/stop the low-impact rolling recorder">● Record</button>
-          <button class="mini-btn" id="aifClip" title="Save the last 30 seconds as a clip" disabled>✂ Save 30s</button>
+          <button class="mini-btn" id="aifClip" title="Save the last 60 seconds as a clip" disabled>✂ Save 60s</button>
           <button class="mini-btn" id="aifAnalyze" title="Have the AI look at your most recent clip">👁 Analyze last clip</button>
           <button class="mini-btn" id="aifRefresh" title="Re-check capture status">↻</button>
         </div>
@@ -5258,7 +5258,7 @@ async function aifToggleRec(){
 }
 async function aifSaveClip(){
   try{
-    const j=await (await fetch(API+'/api/capture/clip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({seconds:30})})).json();
+    const j=await (await fetch(API+'/api/capture/clip',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({seconds:60})})).json();
     toast(j&&j.message?j.message:'Clip saved', (j&&j.ok===false)?'warn':'ok');
   }catch(e){ toast('Clip save failed','err'); }
   aifLoadClips();
