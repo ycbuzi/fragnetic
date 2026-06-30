@@ -837,7 +837,7 @@ def voice_command():
     _speak(reply)
 
 
-APP_BUILD = "13.9"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "14.0"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -7363,6 +7363,21 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "message": "capture module unavailable"}, 503)
             secs = int(body.get("seconds", 30)) if body else 30
             return self._json(fragroute_capture.save_clip(_captures_dir(), secs, body.get("label") if body else None))
+
+        if path == "/api/capture/openfolder":
+            # open the recordings folder in the OS file manager
+            try:
+                d = _captures_dir() / "clips"
+                d.mkdir(parents=True, exist_ok=True)
+                if OS == "Windows":
+                    os.startfile(str(d))   # noqa: explorer
+                elif sys.platform == "darwin":
+                    subprocess.Popen(["open", str(d)])
+                else:
+                    subprocess.Popen(["xdg-open", str(d)])
+                return self._json({"ok": True, "dir": str(d)})
+            except Exception as e:
+                return self._json({"ok": False, "message": str(e)})
 
         if path == "/api/learning/refresh":
             # pull FragPunk-ONLY facts (official + wiki) into the learning store.

@@ -372,6 +372,29 @@ def _gdi_screenshot(out_path):
     return False
 
 
+def _ddagrab_shot(ff, out_path):
+    """One-shot DXGI desktop-duplication grab. This is the ONLY method that can
+    capture a true FULLSCREEN-EXCLUSIVE DirectX game (GDI returns black for it)."""
+    args = [ff, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+            "-filter_complex", "ddagrab=output_idx=0:framerate=2,hwdownload,format=bgra",
+            "-frames:v", "1", "-update", "1", str(out_path)]
+    _run(args, timeout=20)
+    return Path(out_path).exists() and Path(out_path).stat().st_size > 0
+
+
+def _is_blackish(path):
+    """True if the grabbed frame is essentially blank/black (almost no contrast) --
+    e.g. a multi-GPU ddagrab that grabbed the wrong adapter, or GDI on a fullscreen
+    game. Lets us reject a dud and try the other method."""
+    try:
+        from PIL import Image
+        im = Image.open(path).convert("L").resize((48, 27))
+        lo, hi = im.getextrema()
+        return (hi - lo) < 8
+    except Exception:
+        return False
+
+
 def capture_screenshot(out_path):
     """Grab one full-screen frame to a PNG.
 
@@ -393,21 +416,18 @@ def capture_screenshot(out_path):
             except Exception:
                 pass
         return _gdi_screenshot(out_path)   # buffer empty -> GDI (safe; not a 2nd ddagrab)
-    # NOT recording: GDI first -- it's the most reliable one-shot and works on any
-    # GPU. On a multi-GPU PC ddagrab's output_idx=0 can grab the wrong adapter's
-    # surface (black / nothing), which is the usual cause of "Vision saw no image".
-    # GDI captures the real primary screen the same way the OCR does.
-    if _gdi_screenshot(out_path):
-        return True
-    # fallback: ddagrab one-shot (GPU desktop duplication) if GDI somehow failed.
+    # NOT recording: ddagrab FIRST -- it's the only method that grabs a true
+    # FULLSCREEN-EXCLUSIVE game (the user's case). Validate the frame isn't black
+    # (a multi-GPU output_idx mismatch yields a blank surface); if it is, fall back
+    # to GDI for windowed/borderless. Keep whichever produces a real (non-black) image.
     ff = find_ffmpeg()
-    if ff:
-        args = [ff, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-                "-filter_complex", "ddagrab=output_idx=0:framerate=2,hwdownload,format=bgra",
-                "-frames:v", "1", "-update", "1", str(out_path)]
-        _run(args, timeout=20)
-        return Path(out_path).exists() and Path(out_path).stat().st_size > 0
-    return False
+    if ff and _ddagrab_shot(ff, out_path) and not _is_blackish(out_path):
+        return True
+    if _gdi_screenshot(out_path) and not _is_blackish(out_path):
+        return True
+    # nothing clean: return whatever exists. If it's still black, the game is
+    # fullscreen-exclusive AND ddagrab can't reach it -> Borderless/Windowed needed.
+    return Path(out_path).exists() and Path(out_path).stat().st_size > 0
 
 
 def extract_frames(clip_path, out_dir, offsets=(2, 14, 26)):
