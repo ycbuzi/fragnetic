@@ -52,6 +52,14 @@ MANIFEST = [
     {"key": "ffmpeg", "label": "Recorder/Video (ffmpeg LGPL)", "folder": ".",
      "filename": "ffmpeg.exe", "approxMB": 110, "required": True, "kind": "zip_ffmpeg",
      "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip"},
+    # Offline IP->city database so the Live Game tab can name ANY server (incl.
+    # off-VPN / non-Alibaba-LB raw match IPs), no account, no online lookup.
+    # DB-IP City Lite is CC BY 4.0 (commercial OK with attribution -- see NOTICES).
+    # The free build is published monthly, so the URL carries YYYY-MM (resolved at
+    # download time, with a fallback to the previous month if this month isn't up yet).
+    {"key": "geoip", "label": "Server locator (DB-IP City Lite, off-VPN names)", "folder": "geo",
+     "filename": "dbip-city-lite.mmdb", "approxMB": 55, "required": False, "kind": "gz_monthly",
+     "url": "https://download.db-ip.com/free/dbip-city-lite-{ym}.mmdb.gz"},
 ]
 
 
@@ -97,15 +105,45 @@ def status():
             "total": len(MANIFEST)}
 
 
+def _resolve_monthly_url(template):
+    """Fill {ym} with a recent YYYY-MM that actually exists. DB-IP publishes the
+    free DB monthly; early in a month the new file may not be up yet, so we try
+    this month and fall back through the previous two."""
+    import datetime
+    now = datetime.datetime.utcnow()
+    for back in range(0, 3):
+        y, m = now.year, now.month - back
+        while m <= 0:
+            m += 12
+            y -= 1
+        url = template.replace("{ym}", "%04d-%02d" % (y, m))
+        try:
+            req = urllib.request.Request(url, method="HEAD", headers={"User-Agent": "FRAGROUTE-setup"})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                if getattr(r, "status", 200) == 200:
+                    return url
+        except Exception:
+            continue
+    return None
+
+
 def _download(item):
     key = item["key"]
     dest = _dest(item)
     dest.parent.mkdir(parents=True, exist_ok=True)
     _PROG[key] = {"status": "downloading", "pct": 0, "mb": 0, "totalMb": item["approxMB"]}
-    is_zip = item.get("kind") == "zip_ffmpeg"
-    tmp = str(dest) + (".zipdl" if is_zip else ".part")
+    kind = item.get("kind", "")
+    is_zip = kind == "zip_ffmpeg"
+    is_gz = kind == "gz_monthly"
+    url = item["url"]
+    if is_gz:
+        url = _resolve_monthly_url(item["url"])
+        if not url:
+            _PROG[key] = {"status": "error: database not available yet, try later", "pct": 0}
+            return False
+    tmp = str(dest) + (".gz" if is_gz else ".zipdl" if is_zip else ".part")
     try:
-        req = urllib.request.Request(item["url"], headers={"User-Agent": "FRAGROUTE-setup"})
+        req = urllib.request.Request(url, headers={"User-Agent": "FRAGROUTE-setup"})
         with urllib.request.urlopen(req, timeout=60) as r:
             total = int(r.headers.get("Content-Length", 0) or 0)
             done = 0
@@ -131,6 +169,13 @@ def _download(item):
                         if not b:
                             break
                         out.write(b)
+            os.remove(tmp)
+        elif is_gz:
+            _PROG[key]["status"] = "extracting"
+            import gzip
+            import shutil
+            with gzip.open(tmp, "rb") as src, open(dest, "wb") as out:
+                shutil.copyfileobj(src, out, 1 << 20)
             os.remove(tmp)
         else:
             os.replace(tmp, dest)

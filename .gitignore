@@ -25,6 +25,8 @@ sd/
 stt/
 yolo/
 clip/
+geo/
+*.mmdb
 ffmpeg.exe
 wireguard.exe
 *.zip

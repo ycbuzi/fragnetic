@@ -76,3 +76,12 @@ FragPunk and all related names, art, and logos are the property of NetEase.
 This product is an independent companion tool, not affiliated with or endorsed
 by NetEase. Review FragPunk's Terms of Service before distributing a paid tool
 that reads game data; this notices file does not constitute legal advice.
+
+-----------------------------------------------------------------------------
+IP GEOLOCATION — DB-IP City Lite
+-----------------------------------------------------------------------------
+Server-location naming uses the DB-IP City Lite database, (c) DB-IP, licensed
+under Creative Commons Attribution 4.0 International (CC BY 4.0).
+  "IP Geolocation by DB-IP" — https://db-ip.com
+The database is downloaded on demand (not bundled) via the in-app Setup tab.
+Read with the maxminddb reader (Apache-2.0).

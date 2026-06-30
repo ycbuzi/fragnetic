@@ -837,7 +837,7 @@ def voice_command():
     _speak(reply)
 
 
-APP_BUILD = "13.7"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "13.8"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -1031,6 +1031,16 @@ def setup_status():
     if fragroute_embed is not None:
         add("suggester", "Label suggester (CLIP)", fragroute_embed.available(), "",
             "" if fragroute_embed.available() else "Add clip_vitb32.onnx to the clip folder.")
+
+    # GeoIP database -- lets the Live Game tab name ANY server (incl. off-VPN /
+    # non-Alibaba-LB raw match IPs), not just ones learned during play.
+    try:
+        geo_db = _geo_db_path()
+        add("geoip", "Server locator (GeoIP DB)", bool(geo_db),
+            "loaded" if geo_db else "",
+            "" if geo_db else "Download 'Server locator' in Model downloads to name servers off-VPN.")
+    except Exception:
+        add("geoip", "Server locator (GeoIP DB)", False)
     if fragroute_voice is not None:
         try:
             add("voice", "Voice commands (whisper)", fragroute_voice.available())
@@ -2450,6 +2460,35 @@ def _dns_region_for_ip(ip):
             return None
 
 
+def _learned_server_match(ip):
+    """Name an arbitrary game-server IP from the servers we've ALREADY recorded
+    during play (record_server). This is how an off-VPN / non-Alibaba-LB raw
+    match IP gets a region + city: we matched it (exact, else same /24) against
+    the FragPunk servers we learned while on a VPN where the region was known.
+    Returns {'regionId','city','country','exact'} or None."""
+    if not ip:
+        return None
+    try:
+        regions = (load_servers().get("regions", {}) or {})
+    except Exception:
+        return None
+    try:
+        a, b, c, _ = ip.split(".")
+        slash24 = f"{a}.{b}.{c}."
+    except Exception:
+        slash24 = None
+    near = None
+    for rid, bucket in regions.items():
+        for sip, rec in (bucket or {}).items():
+            if sip == ip:
+                return {"regionId": rid, "city": rec.get("city"),
+                        "country": rec.get("country"), "exact": True}
+            if slash24 and near is None and sip.startswith(slash24):
+                near = {"regionId": rid, "city": rec.get("city"),
+                        "country": rec.get("country"), "exact": False}
+    return near
+
+
 def game_status():
     """The route-independent game readout. Tells you:
       - whether Fragpunk is running
@@ -2483,21 +2522,33 @@ def game_status():
     def _describe(hp):
         host, port = hp
         geo = _geo_lookup(host)
-        # DNS-derived cloud region beats GeoIP on cloud IPs; fall back to GeoIP
-        # (state-aware, so US coast is resolved instead of defaulting us-east).
+        # Region sources, best-first, so an OFF-VPN raw match IP still gets named:
+        #   1) DNS cloud-region CNAME (authoritative for Alibaba LBs)
+        #   2) a server we LEARNED during play (exact IP, else same /24)
+        #   3) GeoIP (state-aware US coast), works for any IP once a DB is present
         dns_rid = _dns_region_for_ip(host)
-        rid = dns_rid or _geo_region(geo)
+        learned = _learned_server_match(host)
+        learned_rid = learned.get("regionId") if learned else None
+        rid = dns_rid or learned_rid or _geo_region(geo)
         region = REGION_BY_ID.get(rid)
-        where = ", ".join([x for x in (geo.get("city"), geo.get("country")) if x]) or None
+        # city/country: GeoIP first, fall back to whatever we learned for this IP
+        city = geo.get("city") or (learned.get("city") if learned else None)
+        country = geo.get("country") or (learned.get("country") if learned else None)
+        where = ", ".join([x for x in (city, country) if x]) or None
+        src = ("dns" if dns_rid else "learned" if learned_rid else "geoip" if rid else None)
         return {
             "ip": host, "port": port, "proto": "TCP",
-            "city": geo.get("city"), "country": geo.get("country"),
+            "city": city, "country": country,
             "countryCode": geo.get("countryCode"), "isp": geo.get("isp"),
             "where": where, "regionId": rid,
             "regionName": region["name"] if region else None,
             "regionCode": region["code"] if region else None,
             "geoSource": geo.get("source"),
-            "regionSource": "dns" if dns_rid else "geoip",
+            "regionSource": src,
+            # always something to show the user, even with no GeoIP DB on a fresh
+            # off-VPN server: location -> region name -> the raw endpoint.
+            "serverName": where or (region["name"] if region else None) or ("%s:%s" % (host, port)),
+            "named": bool(where or region),
         }
 
     # context shown in both states: which region's matchmaking you're on
@@ -3716,7 +3767,7 @@ def _autodetect_tick():
             mode_key = "unknown"
             if get_setting("overlayOcr", True):
                 try:
-                    gm = read_game_mode()
+                    gm = read_game_mode(tries=3)   # retry empty reads so warm-up isn't logged as a match
                     training = bool(gm.get("training"))
                     if fragroute_modes is not None:
                         mode_key = fragroute_modes.classify(gm.get("raw", ""))[0]
@@ -4148,27 +4199,37 @@ Write-Output ($r.Text -replace '\s+',' ')
 """
 
 
-def read_game_mode():
+def read_game_mode(tries=1):
     """OCR the top strip to classify the current session. Returns
-    {ok, training, raw}. training=True for Training Base / Warm-up / Practice."""
+    {ok, training, raw}. training=True for Training Base / Warm-up / Practice.
+
+    With tries>1, an EMPTY read (OCR caught nothing -- a blip or mid-transition
+    screen) is retried before giving up, so a warm-up/Training-Base session isn't
+    mistaken for a real match just because one OCR pass missed the mode pill. A
+    confident read (any text) returns immediately, so real-match detection stays
+    fast and the live-detector stop is never delayed."""
     global _MODE_PS_PATH
     if OS != "Windows":
         return {"ok": False, "training": False}
-    try:
-        if not (_MODE_PS_PATH and Path(_MODE_PS_PATH).exists()):
-            p = Path(tempfile.gettempdir()) / "fragroute_mode_ocr.ps1"
-            p.write_text(_MODE_PS)
-            _MODE_PS_PATH = str(p)
-        out = subprocess.run(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", _MODE_PS_PATH],
-            capture_output=True, text=True, timeout=12, **_NO_WINDOW_KW).stdout or ""
-    except Exception:
-        return {"ok": False, "training": False}
-    low = out.lower()
-    ok = bool(out.strip())
-    training = any(w in low for w in ("training", "warm", "practice", "warm-up", "warmup",
-                                       "firing range", "shooting range", "range", "tutorial"))
-    return {"ok": ok, "training": training, "raw": out[:120]}
+    for attempt in range(max(1, tries)):
+        try:
+            if not (_MODE_PS_PATH and Path(_MODE_PS_PATH).exists()):
+                p = Path(tempfile.gettempdir()) / "fragroute_mode_ocr.ps1"
+                p.write_text(_MODE_PS)
+                _MODE_PS_PATH = str(p)
+            out = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", _MODE_PS_PATH],
+                capture_output=True, text=True, timeout=12, **_NO_WINDOW_KW).stdout or ""
+        except Exception:
+            out = ""
+        low = out.lower()
+        ok = bool(out.strip())
+        training = any(w in low for w in ("training", "warm", "practice", "warm-up", "warmup",
+                                           "firing range", "shooting range", "range", "tutorial"))
+        if ok or attempt >= tries - 1:
+            return {"ok": ok, "training": training, "raw": out[:120]}
+        time.sleep(1.0)                       # only when the read was empty
+    return {"ok": False, "training": False}
 
 
 # ---- generic region OCR (rank card, queue timer) --------------------------

@@ -36,7 +36,7 @@ REM  pywebview + pythonnet give the FRAMELESS native window (custom titlebar).
 REM  Without them the exe falls back to an Edge app-window that CAN'T be frameless.
 echo Installing dependencies...
 %PY% -m pip install --upgrade pip >nul 2>nul
-%PY% -m pip install pyinstaller pystray pillow pywebview pythonnet onnxruntime-directml numpy cryptography
+%PY% -m pip install pyinstaller pystray pillow pywebview pythonnet onnxruntime-directml numpy cryptography maxminddb
 if errorlevel 1 (
   echo [X] pip install failed. Check your internet connection and try again.
   pause
@@ -118,6 +118,8 @@ echo Building exe ^(about a minute^)...
   --hidden-import fragroute_license ^
   --hidden-import fragroute_auth ^
   --hidden-import fragroute_hardware ^
+  --hidden-import maxminddb ^
+  --collect-all maxminddb ^
   --hidden-import fragroute_live ^
   --collect-all pystray ^
   --collect-all onnxruntime ^
@@ -177,6 +179,10 @@ REM  CLIP encoder (clip\clip_vitb32.onnx) powers the labeler's few-shot class
 REM  suggestions -- sidecar (it's ~350MB, not in the onefile).
 if exist "clip" xcopy /e /i /y /d clip "dist\clip" >nul
 if exist "dist\clip\clip_vitb32.onnx" (echo Suggester: CLIP encoder present.) else (echo [!] No dist\clip - label suggestions off until clip_vitb32.onnx is added.)
+REM  Server locator: the offline GeoIP DB (geo\*.mmdb) names ANY server in the
+REM  Live Game tab, including off-VPN raw match IPs. Downloaded via Setup; seed to dist.
+if exist "geo" xcopy /e /i /y /d geo "dist\geo" >nul
+if exist "dist\geo\dbip-city-lite.mmdb" (echo Server locator: GeoIP DB present.) else (echo [!] No dist\geo - off-VPN server names need the GeoIP DB from Setup.)
 if exist "dist\llm" (echo Local AI: llm folder present ^(coach LLM enabled^).) else (echo [!] No dist\llm - coach stays router-only until the model is added.)
 
 echo.
