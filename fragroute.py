@@ -837,7 +837,7 @@ def voice_command():
     _speak(reply)
 
 
-APP_BUILD = "13.8"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "13.9"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================

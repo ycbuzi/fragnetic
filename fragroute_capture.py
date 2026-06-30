@@ -339,13 +339,47 @@ def extract_frame(clip_path, out_path, at_seconds=None):
     return rc == 0 and Path(out_path).exists()
 
 
+def _gdi_screenshot(out_path):
+    """Fallback full-screen grab via GDI (no ffmpeg/ddagrab needed). Works on any
+    GPU and when ddagrab returns nothing (wrong output index, no NVIDIA, etc.).
+    Same path the OCR uses, so if mode/rank OCR works this does too. Note: like
+    ddagrab, GDI can't grab a true FULLSCREEN-EXCLUSIVE DX game -- borderless/
+    windowed is required either way."""
+    # 1) PIL ImageGrab (GDI BitBlt) -- bundled, fastest, primary monitor.
+    try:
+        from PIL import ImageGrab
+        img = ImageGrab.grab()
+        img.save(str(out_path))
+        if Path(out_path).exists() and Path(out_path).stat().st_size > 0:
+            return True
+    except Exception:
+        pass
+    # 2) PowerShell System.Drawing fallback (covers a missing/odd PIL).
+    if os.name == "nt":
+        try:
+            ps = (
+                "Add-Type -AssemblyName System.Drawing,System.Windows.Forms;"
+                "$b=[System.Windows.Forms.Screen]::PrimaryScreen.Bounds;"
+                "$bm=New-Object System.Drawing.Bitmap $b.Width,$b.Height;"
+                "$g=[System.Drawing.Graphics]::FromImage($bm);"
+                "$g.CopyFromScreen($b.Location,[System.Drawing.Point]::Empty,$b.Size);"
+                "$bm.Save('%s');$g.Dispose();$bm.Dispose()" % str(out_path).replace("\\", "\\\\")
+            )
+            _run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps], timeout=15)
+            return Path(out_path).exists() and Path(out_path).stat().st_size > 0
+        except Exception:
+            return False
+    return False
+
+
 def capture_screenshot(out_path):
     """Grab one full-screen frame to a PNG.
 
     CRITICAL: two DXGI desktop-duplication (ddagrab) clients CANNOT capture the same
     screen at once -- a second ddagrab CRASHES the recorder. So while recording, we
     pull a recent frame from the ROLLING BUFFER instead of opening a second ddagrab.
-    Only when NOT recording do we do a fresh one-shot ddagrab."""
+    Only when NOT recording do we do a fresh one-shot ddagrab. A GDI grab (used as the
+    fallback throughout) is NOT a ddagrab, so it's always safe -- even mid-recording."""
     if is_recording() and _STATE.get("ring_dir"):
         try:
             segs = sorted(Path(_STATE["ring_dir"]).glob("seg_*.ts"),
@@ -358,16 +392,22 @@ def capture_screenshot(out_path):
                     return True
             except Exception:
                 pass
-        return False  # recording but no frame available -> do NOT ddagrab (would crash it)
+        return _gdi_screenshot(out_path)   # buffer empty -> GDI (safe; not a 2nd ddagrab)
+    # NOT recording: GDI first -- it's the most reliable one-shot and works on any
+    # GPU. On a multi-GPU PC ddagrab's output_idx=0 can grab the wrong adapter's
+    # surface (black / nothing), which is the usual cause of "Vision saw no image".
+    # GDI captures the real primary screen the same way the OCR does.
+    if _gdi_screenshot(out_path):
+        return True
+    # fallback: ddagrab one-shot (GPU desktop duplication) if GDI somehow failed.
     ff = find_ffmpeg()
-    if not ff:
-        return False
-    # not recording: a one-shot ddagrab is safe. hwdownload (GPU->CPU) -> png.
-    args = [ff, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-            "-filter_complex", "ddagrab=output_idx=0:framerate=2,hwdownload,format=bgra",
-            "-frames:v", "1", "-update", "1", str(out_path)]
-    rc, _ = _run(args, timeout=20)
-    return Path(out_path).exists() and Path(out_path).stat().st_size > 0
+    if ff:
+        args = [ff, "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+                "-filter_complex", "ddagrab=output_idx=0:framerate=2,hwdownload,format=bgra",
+                "-frames:v", "1", "-update", "1", str(out_path)]
+        _run(args, timeout=20)
+        return Path(out_path).exists() and Path(out_path).stat().st_size > 0
+    return False
 
 
 def extract_frames(clip_path, out_dir, offsets=(2, 14, 26)):
