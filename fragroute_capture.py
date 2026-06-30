@@ -268,7 +268,10 @@ def start(base_dir, opts=None):
                               "gpu": gpu, "seg_seconds": seg, "ring_segments": nseg,
                               "buffer_seconds": seg * nseg, "audio": audio_device}
         amsg = (" + audio (%s)" % audio_device) if audio_device else " (video only)"
-        return {"ok": True, "message": "Recording (rolling %ds buffer)%s." % (seg * nseg, amsg),
+        # nseg == 0 => ffmpeg segment_wrap 0 => UNLIMITED segments = full-match record
+        # (no rolling overwrite); otherwise it's the rolling N-second highlight buffer.
+        mode = "full match" if nseg == 0 else ("rolling %ds buffer" % (seg * nseg))
+        return {"ok": True, "message": "Recording (%s)%s." % (mode, amsg),
                 "settings": _STATE["settings"]}
 
 
@@ -323,6 +326,34 @@ def save_clip(base_dir, seconds=30, label=None):
         return {"ok": False, "message": "Clip save failed: %s" % (log[:200] or "unknown")}
     return {"ok": True, "file": str(out), "name": out.name,
             "seconds": seconds, "message": "Saved %s" % out.name}
+
+
+def save_full(base_dir, label="match"):
+    """Concatenate the ENTIRE current recording (every ring segment) into one mp4 --
+    full-match recording, not a rolling-buffer clip. Call after stop() so the final
+    segment is finalized. Returns {ok, name, ...}."""
+    with _LOCK:
+        ff = _STATE["ffmpeg"] or find_ffmpeg()
+        ring = _STATE["ring_dir"]
+    if not ring or not ff:
+        return {"ok": False, "message": "Not recording / no ffmpeg."}
+    segs = sorted(Path(ring).glob("seg_*.ts"), key=lambda f: f.stat().st_mtime)
+    if not segs:
+        return {"ok": False, "message": "No footage captured."}
+    clips = Path(base_dir) / "clips"
+    clips.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
+    safe = "".join(c for c in (label or "match") if c.isalnum() or c in "-_") or "match"
+    out = clips / ("%s_%s.mp4" % (stamp, safe))
+    concat = "concat:" + "|".join(str(p) for p in segs)
+    rc, log = _run([ff, "-hide_banner", "-loglevel", "error", "-y",
+                    "-i", concat, "-c", "copy", "-movflags", "+faststart", str(out)],
+                   timeout=300)
+    if rc != 0 or not out.exists():
+        return {"ok": False, "message": "Full save failed: %s" % (log[:200] or "unknown")}
+    mins = round(len(segs) * _STATE["settings"].get("seg_seconds", SEG_SECONDS) / 60.0, 1)
+    return {"ok": True, "file": str(out), "name": out.name,
+            "message": "Saved %s (~%s min)" % (out.name, mins)}
 
 
 def extract_frame(clip_path, out_path, at_seconds=None):

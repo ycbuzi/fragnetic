@@ -1517,7 +1517,8 @@
       <div class="aif-note" id="aifNote">Low-impact NVENC desktop capture (no game hook, anti-cheat safe). Keeps a rolling buffer so you can save the last 30s after a great or bad fight, for AI review.</div>
       <div class="aif-opts" id="aifOpts">
         <label class="aif-opt"><input type="checkbox" id="optAutoRecord"> Auto-record matches</label>
-        <label class="aif-opt"><input type="checkbox" id="optAutoClipEnd"> Auto-save clip at match end</label>
+        <label class="aif-opt" title="On: record the whole game start-to-finish. Off: keep a rolling buffer and save only the last 60s."><input type="checkbox" id="optFullMatch"> Record full match</label>
+        <label class="aif-opt"><input type="checkbox" id="optAutoClipEnd"> Auto-save at match end</label>
         <label class="aif-opt"><input type="checkbox" id="optClipHotkey"> Save-clip hotkey</label>
         <input class="aif-hk" id="optClipHotkeyCombo" placeholder="ctrl+alt+c" title="Global save-clip hotkey (OS-level, anti-cheat safe)">
         <label class="aif-opt"><input type="checkbox" id="optScoutHotkey"> 🔊 Scout hotkey (in-game voice)</label>
@@ -5271,7 +5272,7 @@ async function aifLoadOpts(){
   try{
     const j=await (await fetch(API+'/api/settings')).json(); const s=j.settings||{};
     const set=(id,v)=>{const e=document.getElementById(id); if(e)e.checked=!!v;};
-    set('optAutoRecord',s.autoRecord); set('optAutoClipEnd',s.autoClipMatchEnd); set('optClipHotkey',s.clipHotkeyEnabled);
+    set('optAutoRecord',s.autoRecord); set('optFullMatch',s.fullMatchRecording!==false); set('optAutoClipEnd',s.autoClipMatchEnd); set('optClipHotkey',s.clipHotkeyEnabled);
     set('optOnlineLearn',s.onlineLearning); set('optScoutHotkey',s.scoutHotkeyEnabled); set('optVoiceCmd',s.voiceCmdHotkeyEnabled);
     const hk=document.getElementById('optClipHotkeyCombo'); if(hk&&s.clipHotkey)hk.value=s.clipHotkey;
     const sk=document.getElementById('optScoutHotkeyCombo'); if(sk&&s.scoutHotkey)sk.value=s.scoutHotkey;
@@ -5310,6 +5311,8 @@ async function aifSaveOpt(key,val){
   const ar=document.getElementById('optAutoRecord'), ae=document.getElementById('optAutoClipEnd'),
         ch=document.getElementById('optClipHotkey'), cc=document.getElementById('optClipHotkeyCombo');
   if(ar)ar.addEventListener('change',()=>aifSaveOpt('autoRecord',ar.checked));
+  const fm=document.getElementById('optFullMatch');
+  if(fm)fm.addEventListener('change',()=>aifSaveOpt('fullMatchRecording',fm.checked));
   if(ae)ae.addEventListener('change',()=>aifSaveOpt('autoClipMatchEnd',ae.checked));
   if(ch)ch.addEventListener('change',()=>aifSaveOpt('clipHotkeyEnabled',ch.checked));
   if(cc)cc.addEventListener('change',()=>aifSaveOpt('clipHotkey',(cc.value||'ctrl+alt+c').trim()));

@@ -208,10 +208,14 @@ def capture_auto_start(reason="match"):
             return
         if fragroute_capture.is_recording():
             return
-        r = fragroute_capture.start(_captures_dir(), {})
+        # full-match recording => unlimited segments (ring_segments=0, no rolling
+        # overwrite) so the WHOLE game is kept; else the rolling highlight buffer.
+        full = get_setting("fullMatchRecording", True)
+        opts = {"ring_segments": 0} if full else {}
+        r = fragroute_capture.start(_captures_dir(), opts)
         diag("capture", bool(r.get("ok")), msg="auto-start: %s" % r.get("message", ""))
         if r.get("ok"):
-            _notify("Recording armed", "Rolling buffer running for this %s." % reason)
+            _notify("Recording started", ("Recording this full %s." if full else "Rolling buffer for this %s.") % reason)
     except Exception as e:
         diag("capture", False, msg="auto-start", exc=e)
 
@@ -225,14 +229,13 @@ def _clip_seconds():
 
 
 def capture_match_end(match_dur=None):
-    """At match end: save the final clip (gated). We do NOT stop the recorder here
-    -- match detection can briefly flap (menu blips, reconnects, the firing range),
-    and stopping/restarting each time kills the buffer. The rolling buffer keeps
-    running; capture_game_closed() stops it when FragPunk exits.
+    """At match end: save the recording (gated). In FULL-MATCH mode we stop the
+    recorder and save the WHOLE game; in highlight mode we keep the rolling buffer
+    running and save the last 60s.
 
     Logs the outcome (success AND failure) so a missed recording is never silent,
     and skips sub-45s 'matches' (a login/menu blip) so the login screen is never
-    saved as a recording."""
+    saved as a recording (and a flap never stops a real ongoing full recording)."""
     if fragroute_capture is None:
         return
     try:
@@ -240,15 +243,21 @@ def capture_match_end(match_dur=None):
             diag("capture", True, msg="match-end: not recording; nothing to save")
             return
         if not get_setting("autoClipMatchEnd", True):
-            diag("capture", True, msg="match-end: auto-clip OFF; skipped")
+            diag("capture", True, msg="match-end: auto-save OFF; skipped")
             return
         if match_dur is not None and match_dur < 45:
-            diag("capture", True, msg="match-end: %ss too short (flap/login) -- not saved" % match_dur)
+            diag("capture", True, msg="match-end: %ss too short (flap/login) -- keep recording" % match_dur)
             return
-        r = fragroute_capture.save_clip(_captures_dir(), _clip_seconds(), "matchend")
+        if get_setting("fullMatchRecording", True):
+            fragroute_capture.stop()                       # finalize the segments first
+            r = fragroute_capture.save_full(_captures_dir(), "match")
+            kind = "full match"
+        else:
+            r = fragroute_capture.save_clip(_captures_dir(), _clip_seconds(), "matchend")
+            kind = "match clip"
         if r.get("ok"):
-            diag("capture", True, msg="match clip SAVED: %s" % r.get("name", ""))
-            _notify("Match clip saved", r.get("name", ""))
+            diag("capture", True, msg="%s SAVED: %s" % (kind, r.get("name", "")))
+            _notify("Match recording saved", r.get("message") or r.get("name", ""))
         else:
             diag("capture", False, msg="match-end save FAILED: %s" % r.get("message", "?"))
     except Exception as e:
@@ -261,14 +270,17 @@ def capture_game_closed():
         return
     try:
         if fragroute_capture.is_recording():
-            # Save a final clip BEFORE stopping. Covers the common "I played a few
-            # games then closed FragPunk straight from a match" case, where no clean
-            # match->menu transition ever fired, so nothing got auto-saved.
+            # Save BEFORE stopping. Covers the common "I played then closed FragPunk
+            # straight from a match" case, where no clean match->menu transition fired.
             if get_setting("autoClipMatchEnd", True):
                 try:
-                    r = fragroute_capture.save_clip(_captures_dir(), _clip_seconds(), "gameclose")
+                    if get_setting("fullMatchRecording", True):
+                        fragroute_capture.stop()           # finalize segments first
+                        r = fragroute_capture.save_full(_captures_dir(), "match")
+                    else:
+                        r = fragroute_capture.save_clip(_captures_dir(), _clip_seconds(), "gameclose")
                     diag("capture", bool(r.get("ok")),
-                         msg="game-close clip: %s" % (r.get("name") or r.get("message", "")))
+                         msg="game-close save: %s" % (r.get("name") or r.get("message", "")))
                 except Exception:
                     pass
             fragroute_capture.stop()
@@ -865,7 +877,7 @@ def voice_command():
     _speak(reply)
 
 
-APP_BUILD = "14.1"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "14.2"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -3473,8 +3485,9 @@ DEFAULT_SETTINGS = {
     "queueMarkHotkeyEnabled": False,# global hotkey to mark the exact queue-start
     "queueMarkHotkey": "ctrl+alt+q",# the combo (OS RegisterHotKey, not a hook)
     # ---- AI Coach footage recorder (Phase 3) ----
-    "autoRecord": True,             # auto start/stop the rolling recorder during matches
-    "autoClipMatchEnd": True,       # auto-save the final seconds when a match ends
+    "autoRecord": True,             # auto start/stop the recorder during matches
+    "fullMatchRecording": True,     # True = record the WHOLE match; False = rolling 60s highlight clips
+    "autoClipMatchEnd": True,       # auto-save the recording when a match ends
     "clipHotkeyEnabled": False,     # global hotkey to save the last N seconds as a clip
     "clipHotkey": "ctrl+alt+c",     # the save-clip combo (OS RegisterHotKey, not a hook)
     "clipSeconds": 60,              # how many seconds back a saved clip captures (>=60s)
