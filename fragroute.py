@@ -144,6 +144,11 @@ try:
 except Exception:
     fragroute_auth = None
 
+try:
+    import fragroute_hardware  # GPU/CPU/RAM probe + per-feature compatibility verdicts
+except Exception:
+    fragroute_hardware = None
+
 
 def _captures_dir():
     """Base folder for the capture ring + saved clips (next to other app data)."""
@@ -832,7 +837,7 @@ def voice_command():
     _speak(reply)
 
 
-APP_BUILD = "13.1"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "13.5"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -853,7 +858,7 @@ _DIAG_PATH = [None]
 # dynamically from API errors). Order = display order in the Health tab.
 DIAG_COMPONENTS = [
     ("web",        "Web server / UI"),
-    ("vpn",        "VPN · WireGuard"),
+    ("vpn",        "VPN Â· WireGuard"),
     ("game",       "Game detection"),
     ("autodetect", "Auto-capture (OCR)"),
     ("rank",       "Rank reader (OCR)"),
@@ -4706,7 +4711,7 @@ def _check_slow_queue():
     _ad_event("slow_queue", **nudge)
     if get_setting("notifySlowQueue", False):
         _notify("Queue running long",
-                f"{alt['name']} predicted faster — hop to save ~{saves}s")
+                f"{alt['name']} predicted faster â€” hop to save ~{saves}s")
 
 
 # ===========================================================================
@@ -4764,18 +4769,18 @@ def start_route_profile(region_id):
     # block if in a match -- use BOTH the debounced phase and a fresh live read
     # (the debounced phase can lag, which let a run start during a match before).
     if _in_match():
-        return {"ok": False, "message": "can't optimize during a match — finish it first"}
+        return {"ok": False, "message": "can't optimize during a match â€” finish it first"}
     try:
         live = game_status()
         if live.get("running") and (live.get("server") or {}).get("ip"):
             return {"ok": False, "message":
-                    "you're in a match — finish it, then optimize from the menu"}
+                    "you're in a match â€” finish it, then optimize from the menu"}
     except Exception:
         pass
     targets = region_server_ips(region_id)[:3]
     if not targets:
         return {"ok": False, "message":
-                f"no harvested servers for {region_id} yet — play a match there once so I have a real server to ping"}
+                f"no harvested servers for {region_id} yet â€” play a match there once so I have a real server to ping"}
     _ROUTE_CANCEL.clear()
     with _ROUTE_LOCK:
         ROUTE_PROFILE.update({
@@ -4814,7 +4819,7 @@ def _route_profile_worker(region_id, targets):
             # was the instability). The route restored in `finally` puts you back.
             if _in_match():
                 with _ROUTE_LOCK:
-                    ROUTE_PROFILE["error"] = "stopped: a match started — finish it, then optimize from the menu"
+                    ROUTE_PROFILE["error"] = "stopped: a match started â€” finish it, then optimize from the menu"
                 break
             with _ROUTE_LOCK:
                 ROUTE_PROFILE["current"] = name
@@ -4829,7 +4834,7 @@ def _route_profile_worker(region_id, targets):
             # one more guard: a match can pop during the settle wait below
             if _in_match():
                 with _ROUTE_LOCK:
-                    ROUTE_PROFILE["error"] = "stopped: a match started — finish it, then optimize from the menu"
+                    ROUTE_PROFILE["error"] = "stopped: a match started â€” finish it, then optimize from the menu"
                 break
             # let the tunnel + routes settle (skip the wait in dry-run)
             if not STATE.get("dry_run"):
@@ -4930,7 +4935,7 @@ def _do_auto_revert(prev_tunnel, base, got, dead):
         reason = ("froze (no response)" if dead
                   else f"ping got worse ({round(got)}ms vs ~{round(base)}ms)")
         _ad_event("route_reverted", to=(prev_tunnel or "direct"), reason=reason)
-        _notify("Route auto-reverted", f"That exit {reason} — {where}.")
+        _notify("Route auto-reverted", f"That exit {reason} â€” {where}.")
     except Exception:
         pass
     finally:
@@ -6497,9 +6502,9 @@ def lancer_changes(max_posts=14):
                 if not _is_balance_change(excerpt):
                     continue
                 if start > 0:
-                    excerpt = "…" + excerpt
+                    excerpt = "â€¦" + excerpt
                 if end < len(body):
-                    excerpt = excerpt + "…"
+                    excerpt = excerpt + "â€¦"
                 out.setdefault(name, []).append({
                     "date": p.get("date"), "title": p.get("title"),
                     "url": p.get("url"), "excerpt": excerpt,
@@ -6909,6 +6914,12 @@ class Handler(BaseHTTPRequestHandler):
             if fragroute_license is None:
                 return self._json({"tier": "admin", "features": {}, "disabled": True})
             return self._json(fragroute_license.status())
+
+        if path == "/api/hardware":
+            # this PC's GPU/CPU/RAM + per-feature "will it work here" verdicts
+            if fragroute_hardware is None:
+                return self._json({"profile": None, "capabilities": [], "disabled": True})
+            return self._json(fragroute_hardware.status())
 
         if path == "/api/weaponskins":
             # user's per-weapon skin gallery (metadata only; images via /img)
@@ -7553,6 +7564,11 @@ def main():
     if fragroute_auth is not None:
         fragroute_auth.BASE_DIR = _base_dir               # fragroute_accounts.json lives here
         fragroute_auth.CLOUD_ENDPOINT = os.environ.get("FRAGROUTE_CLOUD_URL") or None
+    if fragroute_hardware is not None:
+        try:
+            fragroute_hardware.FFMPEG = fragroute_capture.find_ffmpeg() if fragroute_capture else None
+        except Exception:
+            fragroute_hardware.FFMPEG = None
     load_settings()
 
     # diagnostics on as early as possible so startup failures are captured too

@@ -57,10 +57,23 @@ _ENC = {"v": None}
 
 
 def _vcodec():
-    """Pick an H.264 encoder available in the LGPL ffmpeg build. NVENC (hardware,
-    fast) if present, else libopenh264 (CPU, BSD-licensed -- commercial-safe), else
-    mpeg4. NOTE: the LGPL build has NO libx264 (x264 is GPL)."""
+    """Pick the best H.264 encoder for THIS machine: NVENC (NVIDIA) / AMF (AMD) /
+    QSV (Intel) hardware if available, else libopenh264 (CPU, BSD -- commercial-safe),
+    else mpeg4. Delegates to the hardware probe so AMD/Intel customers also get
+    hardware encoding. NOTE: the LGPL ffmpeg has NO libx264 (x264 is GPL)."""
     if _ENC["v"] is None:
+        # preferred: the shared hardware-aware picker (knows AMF/QSV too)
+        try:
+            import fragroute_hardware as _HW
+            if not _HW.FFMPEG:
+                _HW.FFMPEG = FFMPEG
+            args, _label, _hw = _HW.best_video_encoder()
+            if args:
+                _ENC["v"] = args
+                return list(_ENC["v"])
+        except Exception:
+            pass
+        # fallback: probe locally (NVENC -> libopenh264 -> mpeg4)
         enc = ""
         try:
             p = subprocess.run([FFMPEG, "-hide_banner", "-encoders"],

@@ -34,9 +34,13 @@ TIERS = {"free": 0, "pro": 1, "admin": 2}
 TIER_LABEL = {"free": "Free", "pro": "Pro", "admin": "Admin (owner)"}
 
 # capability -> minimum tier. Anything NOT listed here is free for everyone.
+# NOTE: 'label'/'train' are ADMIN (owner) only -- those build/train the detector,
+# which is the developer's job. Consumers just RUN the model that ships in updates,
+# so they never see the labeling or training tools.
 FEATURES = {
     "coach": "pro", "imagegen": "pro", "video": "pro", "detector": "pro",
-    "reports": "pro", "live": "pro", "train": "pro", "admin_tools": "admin",
+    "reports": "pro", "live": "pro",
+    "label": "admin", "train": "admin", "admin_tools": "admin",
 }
 # always-on free core (shown so the UI can label them)
 FREE_FEATURES = ["queue", "vpn", "overlay", "locker", "stats", "setup", "cards"]

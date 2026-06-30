@@ -862,6 +862,36 @@ def _hwnd_of(window):
             return None
 
 
+def set_app_user_model_id(appid="Fragnetic.App"):
+    """Give the process its OWN taskbar identity. Without this, Windows groups the
+    app under the host process and shows a stale/generic taskbar icon. Must be
+    called BEFORE the first window is created."""
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(appid)
+    except Exception:
+        pass
+
+
+def apply_window_icon(hwnd, ico_path):
+    """Force the title-bar + TASKBAR icon to our .ico. pywebview's start(icon=)
+    doesn't reliably set the WebView2 window's taskbar icon, so we set it directly
+    with WM_SETICON for both the small (caption) and big (taskbar) sizes."""
+    if not hwnd or not ico_path:
+        return
+    try:
+        u = ctypes.windll.user32
+        IMAGE_ICON, LR_LOADFROMFILE = 1, 0x10
+        WM_SETICON, ICON_SMALL, ICON_BIG = 0x80, 0, 1
+        sm = u.LoadImageW(None, str(ico_path), IMAGE_ICON, 16, 16, LR_LOADFROMFILE)
+        bg = u.LoadImageW(None, str(ico_path), IMAGE_ICON, 32, 32, LR_LOADFROMFILE)
+        if sm:
+            u.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, sm)
+        if bg:
+            u.SendMessageW(hwnd, WM_SETICON, ICON_BIG, bg)
+    except Exception:
+        pass
+
+
 def _u32():
     return ctypes.windll.user32
 
@@ -1019,6 +1049,8 @@ def run_native_window(url, httpd):
 
     tune_webview_perf()   # frame-rate cap + low-end mode; GPU compositing stays ON
 
+    set_app_user_model_id()   # own taskbar identity BEFORE the window exists (fixes stale taskbar icon)
+
     window = webview.create_window(
         WIN_TITLE, url,
         width=1180, height=824, min_size=(900, 640),
@@ -1033,11 +1065,18 @@ def run_native_window(url, httpd):
     WIN["window"] = window
     WIN["main_w"], WIN["main_h"] = 1180, 824
 
-    # Dark caption + capture the HWND once the form exists.
-    try:
-        window.events.loaded += lambda: enable_dark_titlebar(window)
-    except Exception:
+    # Dark caption + force our icon onto the window (title bar + taskbar) once the
+    # form exists. WM_SETICON on the top-level form is what the taskbar reads.
+    def _on_window_ready():
         enable_dark_titlebar(window)
+        try:
+            apply_window_icon(_hwnd_of(window), first_existing(icon_paths()["ico"]))
+        except Exception:
+            pass
+    try:
+        window.events.loaded += _on_window_ready
+    except Exception:
+        _on_window_ready()
 
     # When the main window closes (native X or tray Quit), terminate the whole
     # process IMMEDIATELY. Relying on webview.start() returning has repeatedly
@@ -1262,7 +1301,7 @@ def focus_existing_window():
         # native and Edge app-mode titles ("...Route Optimizer"). We deliberately
         # do NOT match a loose "fragroute" -- that would catch a code editor
         # showing fragroute.py and wrongly think the app is already running.
-        hwnd = user32.FindWindowW(None, WIN_TITLE) or _find_window_contains("route optimizer")
+        hwnd = user32.FindWindowW(None, WIN_TITLE) or _find_window_contains("fragpunk companion")
         if hwnd:
             user32.ShowWindow(hwnd, 9)        # SW_RESTORE (un-minimize)
             user32.SetForegroundWindow(hwnd)

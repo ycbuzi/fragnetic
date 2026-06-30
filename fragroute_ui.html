@@ -1062,6 +1062,17 @@
   .feat-locked{position:relative;opacity:.55}
   .feat-locked::after{content:'PRO';position:absolute;top:3px;right:4px;font-size:8px;font-weight:800;color:var(--cyan);
     background:rgba(0,0,0,.55);border:1px solid var(--cyan);border-radius:4px;padding:0 3px;letter-spacing:.05em}
+  /* hardware / compatibility panel */
+  .hw-specs{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 6px}
+  .hw-chip{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:7px;padding:6px 10px;font-size:12px;color:var(--text)}
+  .hw-chip b{color:var(--cyan)}
+  .hw-cap{display:flex;align-items:flex-start;gap:9px;padding:7px 2px;border-bottom:1px solid rgba(255,255,255,.05);font-size:12.5px}
+  .hw-dot{width:9px;height:9px;border-radius:50%;margin-top:4px;flex:0 0 9px}
+  .hw-dot.good{background:#39d98a;box-shadow:0 0 8px #39d98a88}
+  .hw-dot.warn{background:#ffcf66;box-shadow:0 0 8px #ffcf6688}
+  .hw-dot.bad{background:#ff5a7a;box-shadow:0 0 8px #ff5a7a88}
+  .hw-cap .lab{color:var(--text);font-weight:600;min-width:150px;display:inline-block}
+  .hw-cap .why{color:var(--text-mute)}
 </style>
 </head>
 <body>
@@ -1139,11 +1150,11 @@
 
   <!-- TAB BAR (2-level: groups + sub-tabs) -->
   <div class="tabbar" id="tabGroups">
-    <button class="tabgroup active" data-group="play"><span class="tdot" id="tabGameDot"></span>Play</button>
-    <button class="tabgroup" data-group="game">Game Info</button>
-    <button class="tabgroup" data-group="ai">AI Coach</button>
-    <button class="tabgroup" data-group="media">Media</button>
-    <button class="tabgroup" data-group="system"><span class="tdot" id="tabHealthDot"></span>System</button>
+    <button class="tabgroup active" data-group="play"><span class="tdot" id="tabGameDot"></span><span data-i18n="Play">Play</span></button>
+    <button class="tabgroup" data-group="game"><span data-i18n="Game Info">Game Info</span></button>
+    <button class="tabgroup" data-group="ai"><span data-i18n="AI Coach">AI Coach</span></button>
+    <button class="tabgroup" data-group="media"><span data-i18n="Media">Media</span></button>
+    <button class="tabgroup" data-group="system"><span class="tdot" id="tabHealthDot"></span><span data-i18n="System">System</span></button>
   </div>
   <div class="subtabbar" id="tabSub"></div>
   <span id="tabStatusBadge" class="tbadge" style="display:none">!</span>
@@ -1480,7 +1491,7 @@
 
   <!-- ===================== AI: FOOTAGE ===================== -->
   <div class="tab-pane" data-pane="footage">
-    <div class="section-title"><span>🎥 Footage</span></div>
+    <div class="section-title"><span>🎥 Record Gameplay</span></div>
     <div class="ai-footage" id="aiFootage">
       <div class="aif-row">
         <span class="aif-status" id="aifStatus">Footage capture: checking…</span>
@@ -1594,6 +1605,13 @@
       <div class="right"><span id="setReady" class="ai-badge">—</span><button class="mini-btn" id="setRefresh">↻</button></div>
     </div>
     <div class="ai-note">What's ready on this PC. Green = good · amber = optional piece missing (with the fix). Missing pieces just disable their own feature.</div>
+
+    <div class="section-title" style="margin-top:6px"><span>🖥️ Your PC &amp; compatibility</span></div>
+    <div class="ai-note">Detected automatically — whether each feature will run well on <i>your</i> hardware.</div>
+    <div id="hwSpecs" class="hw-specs">checking hardware…</div>
+    <div id="hwCompat" class="set-list"></div>
+
+    <div class="section-title" style="margin-top:14px"><span>🧩 Components</span></div>
     <div id="setList" class="set-list"></div>
     <div class="section-title" style="margin-top:14px"><span>📦 Model downloads</span>
       <div class="right"><span id="setDlMB" class="ai-badge">—</span><button class="mini-btn" id="setDlAll">⬇ Download all missing</button></div>
@@ -1814,6 +1832,10 @@
     <div class="set-group" data-sgroup="look">
       <div class="set-group-title">Appearance</div>
       <div class="set-row">
+        <div class="set-info"><div class="set-label" data-i18n="Language">Language</div><div class="set-desc">Interface language. Auto-detect uses your system language.</div></div>
+        <div class="set-ctl"><select class="set-num" id="langSelect" style="width:150px"></select></div>
+      </div>
+      <div class="set-row">
         <div class="set-info"><div class="set-label">Accent theme</div><div class="set-desc">Recolor the whole interface.</div></div>
         <div class="set-ctl"><div class="swatches" id="themeSwatches"></div></div>
       </div>
@@ -1973,9 +1995,37 @@ const SETTINGS_DEFAULTS = {
   autoCapture:true, gamePollSeconds:6, pauseDetectionWhenIdle:false, suggestBetterRoute:true,
   newsAutoRefreshSeconds:0, newsSources:'both', newsOpenIn:'inapp', newsCount:12,
   autoStartTimerOnConnect:true, minLogSeconds:3,
-  theme:'pink', compact:false, lite:true, clock24h:true, defaultTab:'routing'
+  theme:'pink', compact:false, lite:true, clock24h:true, defaultTab:'routing', lang:'auto'
 };
 let SETTINGS = {...SETTINGS_DEFAULTS};
+
+// ===================== i18n (FragPunk's actual player languages) =====================
+const LANGS=[['auto','Auto-detect'],['en','English'],['es','Español'],['pt','Português (BR)'],
+  ['fr','Français'],['de','Deutsch'],['ru','Русский'],['zh','简体中文']];
+const I18N={
+ es:{"Play":"Jugar","Game Info":"Info del juego","AI Coach":"Entrenador IA","Media":"Medios","System":"Sistema","Live Game":"Partida en vivo","Status":"Estado","Weapons":"Armas","Locker":"Casillero","Coach":"Entrenador","Record Gameplay":"Grabar juego","Image Gen":"Generar imagen","Vision":"Visión","Video":"Vídeo","Replays":"Repeticiones","Browser":"Navegador","News":"Noticias","Setup":"Configuración","Health":"Estado","Sign in to continue":"Inicia sesión para continuar","Create your account":"Crea tu cuenta","Reset your password":"Restablecer contraseña","Username":"Usuario","Password":"Contraseña","Email (optional)":"Correo (opcional)","License key (optional)":"Clave de licencia (opcional)","Recovery code":"Código de recuperación","New password":"Nueva contraseña","Sign in":"Iniciar sesión","Create account":"Crear cuenta","Reset password":"Restablecer","New here?":"¿Nuevo aquí?","Have an account?":"¿Ya tienes cuenta?","Remembered it?":"¿Lo recordaste?","Create an account":"Crear una cuenta","Forgot password?":"¿Olvidaste la contraseña?","Save your recovery code":"Guarda tu código de recuperación","I saved it — continue":"Lo guardé — continuar","Account":"Cuenta","User":"Usuario","Plan":"Plan","Free trial":"Prueba gratis","License key":"Clave de licencia","Apply key":"Aplicar clave","Remove":"Quitar","Change password":"Cambiar contraseña","Log out":"Cerrar sesión","Language":"Idioma"},
+ pt:{"Play":"Jogar","Game Info":"Info do Jogo","AI Coach":"Treinador IA","Media":"Mídia","System":"Sistema","Live Game":"Jogo ao vivo","Status":"Status","Weapons":"Armas","Locker":"Armário","Coach":"Treinador","Record Gameplay":"Gravar Jogo","Image Gen":"Gerar Imagem","Vision":"Visão","Video":"Vídeo","Replays":"Replays","Browser":"Navegador","News":"Notícias","Setup":"Configuração","Health":"Saúde","Sign in to continue":"Entre para continuar","Create your account":"Crie sua conta","Reset your password":"Redefinir senha","Username":"Usuário","Password":"Senha","Email (optional)":"E-mail (opcional)","License key (optional)":"Chave de licença (opcional)","Recovery code":"Código de recuperação","New password":"Nova senha","Sign in":"Entrar","Create account":"Criar conta","Reset password":"Redefinir","New here?":"Novo aqui?","Have an account?":"Já tem conta?","Remembered it?":"Lembrou?","Create an account":"Criar uma conta","Forgot password?":"Esqueceu a senha?","Save your recovery code":"Guarde seu código de recuperação","I saved it — continue":"Salvei — continuar","Account":"Conta","User":"Usuário","Plan":"Plano","Free trial":"Teste grátis","License key":"Chave de licença","Apply key":"Aplicar chave","Remove":"Remover","Change password":"Alterar senha","Log out":"Sair","Language":"Idioma"},
+ fr:{"Play":"Jouer","Game Info":"Infos du jeu","AI Coach":"Coach IA","Media":"Médias","System":"Système","Live Game":"Partie en direct","Status":"Statut","Weapons":"Armes","Locker":"Casier","Coach":"Coach","Record Gameplay":"Enregistrer","Image Gen":"Générateur d'images","Vision":"Vision","Video":"Vidéo","Replays":"Replays","Browser":"Navigateur","News":"Actualités","Setup":"Configuration","Health":"État","Sign in to continue":"Connectez-vous pour continuer","Create your account":"Créez votre compte","Reset your password":"Réinitialiser le mot de passe","Username":"Nom d'utilisateur","Password":"Mot de passe","Email (optional)":"E-mail (facultatif)","License key (optional)":"Clé de licence (facultatif)","Recovery code":"Code de récupération","New password":"Nouveau mot de passe","Sign in":"Se connecter","Create account":"Créer un compte","Reset password":"Réinitialiser","New here?":"Nouveau ?","Have an account?":"Déjà un compte ?","Remembered it?":"Ça vous revient ?","Create an account":"Créer un compte","Forgot password?":"Mot de passe oublié ?","Save your recovery code":"Enregistrez votre code de récupération","I saved it — continue":"C'est enregistré — continuer","Account":"Compte","User":"Utilisateur","Plan":"Forfait","Free trial":"Essai gratuit","License key":"Clé de licence","Apply key":"Appliquer la clé","Remove":"Retirer","Change password":"Changer le mot de passe","Log out":"Déconnexion","Language":"Langue"},
+ de:{"Play":"Spielen","Game Info":"Spielinfo","AI Coach":"KI-Coach","Media":"Medien","System":"System","Live Game":"Live-Spiel","Status":"Status","Weapons":"Waffen","Locker":"Spind","Coach":"Coach","Record Gameplay":"Aufnehmen","Image Gen":"Bildgenerator","Vision":"Vision","Video":"Video","Replays":"Wiederholungen","Browser":"Browser","News":"Neuigkeiten","Setup":"Einrichtung","Health":"Zustand","Sign in to continue":"Zum Fortfahren anmelden","Create your account":"Konto erstellen","Reset your password":"Passwort zurücksetzen","Username":"Benutzername","Password":"Passwort","Email (optional)":"E-Mail (optional)","License key (optional)":"Lizenzschlüssel (optional)","Recovery code":"Wiederherstellungscode","New password":"Neues Passwort","Sign in":"Anmelden","Create account":"Konto erstellen","Reset password":"Zurücksetzen","New here?":"Neu hier?","Have an account?":"Konto vorhanden?","Remembered it?":"Wieder erinnert?","Create an account":"Konto erstellen","Forgot password?":"Passwort vergessen?","Save your recovery code":"Wiederherstellungscode speichern","I saved it — continue":"Gespeichert — weiter","Account":"Konto","User":"Benutzer","Plan":"Tarif","Free trial":"Gratis-Test","License key":"Lizenzschlüssel","Apply key":"Schlüssel anwenden","Remove":"Entfernen","Change password":"Passwort ändern","Log out":"Abmelden","Language":"Sprache"},
+ ru:{"Play":"Играть","Game Info":"Об игре","AI Coach":"ИИ-тренер","Media":"Медиа","System":"Система","Live Game":"Текущая игра","Status":"Статус","Weapons":"Оружие","Locker":"Шкафчик","Coach":"Тренер","Record Gameplay":"Запись игры","Image Gen":"Генератор изображений","Vision":"Зрение","Video":"Видео","Replays":"Повторы","Browser":"Браузер","News":"Новости","Setup":"Настройка","Health":"Состояние","Sign in to continue":"Войдите, чтобы продолжить","Create your account":"Создайте аккаунт","Reset your password":"Сбросить пароль","Username":"Имя пользователя","Password":"Пароль","Email (optional)":"Эл. почта (необязательно)","License key (optional)":"Ключ лицензии (необязательно)","Recovery code":"Код восстановления","New password":"Новый пароль","Sign in":"Войти","Create account":"Создать аккаунт","Reset password":"Сбросить пароль","New here?":"Впервые здесь?","Have an account?":"Уже есть аккаунт?","Remembered it?":"Вспомнили?","Create an account":"Создать аккаунт","Forgot password?":"Забыли пароль?","Save your recovery code":"Сохраните код восстановления","I saved it — continue":"Я сохранил — продолжить","Account":"Аккаунт","User":"Пользователь","Plan":"План","Free trial":"Пробный период","License key":"Ключ лицензии","Apply key":"Применить ключ","Remove":"Удалить","Change password":"Сменить пароль","Log out":"Выйти","Language":"Язык"},
+ zh:{"Play":"游戏","Game Info":"游戏信息","AI Coach":"AI 教练","Media":"媒体","System":"系统","Live Game":"实时对局","Status":"状态","Weapons":"武器","Locker":"储物柜","Coach":"教练","Record Gameplay":"录制游戏","Image Gen":"图像生成","Vision":"视觉","Video":"视频","Replays":"回放","Browser":"浏览器","News":"新闻","Setup":"设置","Health":"运行状况","Sign in to continue":"登录以继续","Create your account":"创建账户","Reset your password":"重置密码","Username":"用户名","Password":"密码","Email (optional)":"邮箱（可选）","License key (optional)":"许可密钥（可选）","Recovery code":"恢复码","New password":"新密码","Sign in":"登录","Create account":"创建账户","Reset password":"重置密码","New here?":"新用户？","Have an account?":"已有账户？","Remembered it?":"想起来了？","Create an account":"创建账户","Forgot password?":"忘记密码？","Save your recovery code":"保存您的恢复码","I saved it — continue":"已保存 — 继续","Account":"账户","User":"用户","Plan":"套餐","Free trial":"免费试用","License key":"许可密钥","Apply key":"应用密钥","Remove":"移除","Change password":"修改密码","Log out":"登出","Language":"语言"}
+};
+function _resolveLang(){
+  let l=(SETTINGS.lang||'auto');
+  if(l==='auto'){ const n=(navigator.language||'en').toLowerCase();
+    l = n.startsWith('es')?'es':n.startsWith('pt')?'pt':n.startsWith('fr')?'fr':n.startsWith('de')?'de':n.startsWith('ru')?'ru':n.startsWith('zh')?'zh':'en'; }
+  return I18N[l]?l:'en';
+}
+let _LANG=_resolveLang();
+function t(s){ if(_LANG==='en')return s; const d=I18N[_LANG]; return (d&&d[s])||s; }
+function applyI18n(){
+  _LANG=_resolveLang();
+  document.querySelectorAll('[data-i18n]').forEach(el=>{ el.textContent=t(el.getAttribute('data-i18n')); });
+  document.querySelectorAll('[data-i18n-ph]').forEach(el=>{ el.setAttribute('placeholder',t(el.getAttribute('data-i18n-ph'))); });
+  try{ if(typeof renderSubtabs==='function')renderSubtabs(_curGroup); }catch(e){}
+  try{ if(typeof setAuthMode==='function' && document.getElementById('authGate').style.display!=='none')setAuthMode(AUTH_MODE); }catch(e){}
+  document.documentElement.lang=_LANG;
+}
 // each theme = [primary accent, secondary accent]; recolors the whole UI
 const THEMES = {
   pink:['#ff2f92','#2ff0d4'], cyan:['#2ff0d4','#ff2f92'], amber:['#ffae3a','#2ff0d4'],
@@ -2003,6 +2053,19 @@ function applyAppearance(){
 }
 loadSettingsCache();   // instant: appearance applied before first paint (below)
 try{ applyAppearance(); }catch(e){}   // body exists (script is at end of <body>)
+// populate + wire the language picker, then translate the whole UI to the chosen
+// (or auto-detected) language on first paint.
+function initLangSelect(){
+  const sel=document.getElementById('langSelect'); if(!sel)return;
+  if(!sel.options.length){
+    sel.innerHTML=LANGS.map(([c,n])=>`<option value="${c}">${n}</option>`).join('');
+    sel.addEventListener('change',()=>{
+      try{ saveSetting('lang',sel.value); }catch(e){ SETTINGS.lang=sel.value; saveSettingsCache(); }
+      applyI18n(); });
+  }
+  sel.value=SETTINGS.lang||'auto';
+}
+try{ initLangSelect(); applyI18n(); }catch(e){}
 
 const HEAT_ESTIMATE_SEC = { PEAK:35, ACTIVE:75, MODERATE:150, LOW:300, DEAD:600 };
 
@@ -2709,16 +2772,32 @@ function fxTabSwitch(name){
 const TAB_GROUPS={
   play:[['routing','Live Game'],['status','Status']],
   game:[['lancers','Lancers'],['weapons','Weapons'],['locker','Locker']],
-  ai:[['coach','Coach'],['footage','Footage'],['create','Create'],['vision','Vision'],['label','Label'],['video','Video']],
+  ai:[['coach','Coach'],['footage','Record Gameplay'],['create','Image Gen'],['vision','Vision'],['label','Label'],['video','Video']],
   media:[['replays','Replays'],['browser','Browser'],['news','News']],
   system:[['setup','Setup'],['health','Health']],
 };
 let _curGroup='play';
+// dev/training tools — only the OWNER (admin tier) sees these. Consumers run the
+// detector we ship; they never label or train it, so these tabs stay hidden.
+const ADMIN_ONLY_TABS=['label'];
+function _tabVisible(k){
+  if(!ADMIN_ONLY_TABS.includes(k)) return true;
+  return !!(typeof ENT==='object' && ENT && (ENT.tier==='admin' || ENT.disabled));
+}
 function _groupOf(tab){ return Object.keys(TAB_GROUPS).find(g=>TAB_GROUPS[g].some(([k])=>k===tab)); }
 function renderSubtabs(group){
   const bar=document.getElementById('tabSub'); if(!bar)return;
-  bar.innerHTML=(TAB_GROUPS[group]||[]).map(([k,label])=>`<button class="tab" data-tab="${k}">${label}</button>`).join('');
+  bar.innerHTML=(TAB_GROUPS[group]||[]).filter(([k])=>_tabVisible(k))
+    .map(([k,label])=>`<button class="tab" data-tab="${k}">${(typeof t==='function'?t(label):label)}</button>`).join('');
   bar.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
+}
+// re-render the current group's tabs once we know the tier (Label appears for admin)
+function refreshTabsForTier(){
+  if(typeof renderSubtabs!=='function')return;
+  renderSubtabs(_curGroup);
+  const active=document.querySelector('.tab-pane.active');
+  const cur=active?active.getAttribute('data-pane'):null;
+  if(cur){ const btn=document.querySelector('#tabSub .tab[data-tab="'+cur+'"]'); if(btn)btn.classList.add('active'); }
 }
 function switchGroup(group){
   _curGroup=group;
@@ -2727,6 +2806,11 @@ function switchGroup(group){
   switchTab((TAB_GROUPS[group][0]||['routing'])[0]);
 }
 function switchTab(name){
+  if(!_tabVisible(name)){            // never land on a dev-only tab as a consumer
+    const grp=_groupOf(name)||_curGroup;
+    const vis=(TAB_GROUPS[grp]||[]).filter(([k])=>_tabVisible(k));
+    name=(vis[0]||['routing'])[0];
+  }
   const changing = !document.querySelector('.tab-pane[data-pane="'+name+'"].active');
   const g=_groupOf(name);
   if(g && g!==_curGroup){
@@ -3866,6 +3950,7 @@ function applySettings(){
   if(capVal)capVal.textContent=PING_CAP+'ms';
   syncLiteButton();
   updateClock();
+  try{ initLangSelect(); applyI18n(); }catch(e){}   // re-apply language after settings load
 }
 // react to one setting changing (called from saveSetting, instant local effect)
 function onSettingChanged(key,value){
@@ -4986,9 +5071,26 @@ function _vidWire(){ _vid.wired=true;
   document.getElementById('vidRefresh').addEventListener('click',vidLoad);
 }
 
+// ===================== HARDWARE / COMPATIBILITY =====================
+async function loadHardware(){
+  const sp=document.getElementById('hwSpecs'), cp=document.getElementById('hwCompat');
+  if(!sp)return;
+  let d; try{ d=await (await fetch(API+'/api/hardware')).json(); }catch(e){ sp.textContent='hardware probe unavailable'; return; }
+  if(!d || d.disabled){ sp.textContent='hardware probe not available in this build'; if(cp)cp.innerHTML=''; return; }
+  const p=d.profile||{};
+  const gpus=(p.gpus||[]).map(g=>`<span class="hw-chip">${_esc(g.vendor)} ${_esc(g.name)}${g.vramGB?' · <b>'+g.vramGB+'GB</b>':''}</span>`).join('');
+  sp.innerHTML =
+    `<span class="hw-chip">CPU <b>${_esc((p.cpu&&p.cpu.name)||'—')}</b> · ${(p.cpu&&p.cpu.cores)||'?'} cores</span>`+
+    `<span class="hw-chip">RAM <b>${p.ramGB||'?'} GB</b></span>`+ gpus +
+    `<span class="hw-chip">Recorder <b>${_esc((p.encoder&&p.encoder.label)||'—')}</b></span>`;
+  cp.innerHTML=(d.capabilities||[]).map(c=>
+    `<div class="hw-cap"><span class="hw-dot ${c.level}"></span><div><span class="lab">${_esc(c.label)}</span><span class="why">${_esc(c.why)}</span></div></div>`).join('');
+}
+
 // ===================== SETUP / READINESS =====================
 let _setWired=false, _setPoll=null;
 async function setupLoad(){
+  loadHardware();
   if(!_setWired){ _setWired=true;
     document.getElementById('setRefresh')?.addEventListener('click',setupLoad);
     document.getElementById('setDlAll')?.addEventListener('click',()=>setDownload(null));
@@ -5160,21 +5262,21 @@ async function aifSaveOpt(key,val){
     <div id="authForm">
       <div class="auth-sub" id="authSub">Sign in to continue</div>
       <div id="authErr" class="auth-err"></div>
-      <input id="authUser" class="auth-in" placeholder="Username" autocomplete="username" spellcheck="false">
-      <input id="authCode" class="auth-in" placeholder="Recovery code" style="display:none" spellcheck="false">
+      <input id="authUser" class="auth-in" placeholder="Username" data-i18n-ph="Username" autocomplete="username" spellcheck="false">
+      <input id="authCode" class="auth-in" placeholder="Recovery code" data-i18n-ph="Recovery code" style="display:none" spellcheck="false">
       <input id="authPass" class="auth-in" type="password" placeholder="Password" autocomplete="current-password">
-      <input id="authEmail" class="auth-in" placeholder="Email (optional)" style="display:none" spellcheck="false">
-      <input id="authLicense" class="auth-in" placeholder="License key (optional)" style="display:none" spellcheck="false">
+      <input id="authEmail" class="auth-in" placeholder="Email (optional)" data-i18n-ph="Email (optional)" style="display:none" spellcheck="false">
+      <input id="authLicense" class="auth-in" placeholder="License key (optional)" data-i18n-ph="License key (optional)" style="display:none" spellcheck="false">
       <button id="authSubmit" class="auth-btn">Sign in</button>
       <div class="auth-toggle"><span id="authToggleTxt">New here?</span><a id="authToggle">Create an account</a></div>
-      <div class="auth-toggle" id="authForgotRow"><a id="authForgot">Forgot password?</a></div>
+      <div class="auth-toggle" id="authForgotRow"><a id="authForgot" data-i18n="Forgot password?">Forgot password?</a></div>
       <div class="auth-foot">Your account &amp; password stay on this PC. Paid features unlock with a license key — start with a free trial.</div>
     </div>
     <div id="authRecovery" style="display:none">
       <div class="auth-sub" id="recTitle">Save your recovery code</div>
       <div class="rec-code" id="recCode">—</div>
       <div class="auth-foot" style="color:#ffcf66">This is the <b>only</b> way to reset your password. Write it down now — it won't be shown again.</div>
-      <button class="auth-btn" id="recContinue" style="margin-top:14px">I saved it — continue</button>
+      <button class="auth-btn" id="recContinue" data-i18n="I saved it — continue" style="margin-top:14px">I saved it — continue</button>
     </div>
   </div>
 </div>
@@ -5183,17 +5285,17 @@ async function aifSaveOpt(key,val){
 <div id="acctModal" class="acct-modal" style="display:none">
   <div class="acct-box">
     <button class="acct-x" id="acctClose">✕</button>
-    <div class="acct-h">Account</div>
-    <div class="acct-row"><span>User</span><b id="acctUser">—</b></div>
-    <div class="acct-row"><span>Plan</span><b id="acctPlan" class="tier-badge t-free">Free</b></div>
-    <div class="acct-row" id="acctTrialRow"><span>Free trial</span><b id="acctTrial">—</b></div>
-    <div class="acct-sec">License key</div>
+    <div class="acct-h" data-i18n="Account">Account</div>
+    <div class="acct-row"><span data-i18n="User">User</span><b id="acctUser">—</b></div>
+    <div class="acct-row"><span data-i18n="Plan">Plan</span><b id="acctPlan" class="tier-badge t-free">Free</b></div>
+    <div class="acct-row" id="acctTrialRow"><span data-i18n="Free trial">Free trial</span><b id="acctTrial">—</b></div>
+    <div class="acct-sec" data-i18n="License key">License key</div>
     <div class="acct-desc">Paste a Pro/Admin key to unlock everything. Verified offline — no internet needed.</div>
     <input id="acctKey" class="auth-in" placeholder="FRG1.…" spellcheck="false">
-    <div class="acct-btns"><button id="acctApply" class="auth-btn sm">Apply key</button><button id="acctClear" class="auth-btn sm ghost">Remove</button></div>
+    <div class="acct-btns"><button id="acctApply" class="auth-btn sm" data-i18n="Apply key">Apply key</button><button id="acctClear" class="auth-btn sm ghost" data-i18n="Remove">Remove</button></div>
     <div id="acctKeyMsg" class="auth-err"></div>
     <div class="acct-sec">Security</div>
-    <div class="acct-btns"><button id="acctPw" class="auth-btn sm ghost">Change password</button><button id="acctLogout" class="auth-btn sm ghost">Log out</button></div>
+    <div class="acct-btns"><button id="acctPw" class="auth-btn sm ghost" data-i18n="Change password">Change password</button><button id="acctLogout" class="auth-btn sm ghost" data-i18n="Log out">Log out</button></div>
     <div class="acct-mid">Machine ID <code id="acctMid">—</code></div>
   </div>
 </div>
@@ -5218,11 +5320,11 @@ function setAuthMode(m){
   _g('authEmail').style.display = reg ? 'block' : 'none';
   _g('authLicense').style.display = reg ? 'block' : 'none';
   _g('authCode').style.display = rst ? 'block' : 'none';
-  _g('authPass').placeholder = rst ? 'New password' : 'Password';
-  _g('authSub').textContent = reg ? 'Create your account' : (rst ? 'Reset your password' : 'Sign in to continue');
-  _g('authSubmit').textContent = reg ? 'Create account' : (rst ? 'Reset password' : 'Sign in');
-  _g('authToggleTxt').textContent = rst ? 'Remembered it?' : (reg ? 'Have an account?' : 'New here?');
-  _g('authToggle').textContent = (reg || rst) ? 'Sign in' : 'Create an account';
+  _g('authPass').placeholder = t(rst ? 'New password' : 'Password');
+  _g('authSub').textContent = t(reg ? 'Create your account' : (rst ? 'Reset your password' : 'Sign in to continue'));
+  _g('authSubmit').textContent = t(reg ? 'Create account' : (rst ? 'Reset password' : 'Sign in'));
+  _g('authToggleTxt').textContent = t(rst ? 'Remembered it?' : (reg ? 'Have an account?' : 'New here?'));
+  _g('authToggle').textContent = t((reg || rst) ? 'Sign in' : 'Create an account');
   _g('authForgotRow').style.display = (m === 'login') ? 'block' : 'none';
   _g('authPass').setAttribute('autocomplete', (reg || rst) ? 'new-password' : 'current-password');
   _g('authErr').textContent = '';
@@ -5239,7 +5341,7 @@ async function authRefresh(){
 function showRecovery(code, isReset){
   _g('authForm').style.display = 'none';
   _g('authRecovery').style.display = 'block';
-  setText(_g('recTitle'), isReset ? 'Reset done — new recovery code' : 'Save your recovery code');
+  setText(_g('recTitle'), t(isReset ? 'Reset done — new recovery code' : 'Save your recovery code'));
   setText(_g('recCode'), code || '—');
   _RECOVERY_NEXT = isReset ? 'login' : 'enter';
 }
@@ -5275,6 +5377,7 @@ async function refreshEntitlement(){
   const tb = _g('acctTier');
   if (tb){ tb.textContent = (ENT.tierLabel || ENT.tier || 'Free'); tb.className = 'tier-badge t-' + (ENT.tier || 'free'); }
   applyFeatureLocks();
+  try{ if (typeof refreshTabsForTier === 'function') refreshTabsForTier(); }catch(e){}  // show/hide dev-only tabs
 }
 function featOn(f){ return !ENT || ENT.disabled || !(ENT.features) || ENT.features[f] !== false; }
 function applyFeatureLocks(){

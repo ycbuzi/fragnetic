@@ -18,7 +18,7 @@ OUT = HERE / "release" / "FRAGROUTE"
 
 # explicit single files to ship (app + tools + notices)
 FILES = [
-    (DIST / "FRAGROUTE.exe", "FRAGROUTE.exe"),
+    (DIST / "Fragnetic.exe", "Fragnetic.exe"),
     (DIST / "ffmpeg.exe", "ffmpeg.exe"),            # must be the LGPL build
     (DIST / "wireguard.exe", "wireguard.exe"),
     (DIST / "README.md", "README.md"),
@@ -107,7 +107,7 @@ def main():
     # a short buyer-facing setup note
     (OUT / "SETUP.txt").write_text(
         "FRAGROUTE\n========\n\n"
-        "1. Run FRAGROUTE.exe (click YES on the admin prompt).\n"
+        "1. Run Fragnetic.exe (click YES on the admin prompt).\n"
         "2. Open System > Setup. It shows what's ready and lets you DOWNLOAD the AI\n"
         "   models (~20GB total) -- pick what you want; they fill in in the background.\n"
         "3. For clip audio: enable 'Stereo Mix' (Windows Sound > Recording) or a virtual\n"

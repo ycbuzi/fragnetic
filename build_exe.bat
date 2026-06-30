@@ -1,14 +1,14 @@
 @echo off
 REM ============================================================
-REM  Build FRAGROUTE.exe  --  just double-click this file.
-REM  Produces a single-file, windowed, admin app: dist\FRAGROUTE.exe
+REM  Build Fragnetic.exe  --  just double-click this file.
+REM  Produces a single-file, windowed, admin app: dist\Fragnetic.exe
 REM  All-in-one: bundles wireguard.exe so nothing external is needed.
 REM ============================================================
 setlocal enabledelayedexpansion
 cd /d "%~dp0"
 
 echo ============================================================
-echo  Building FRAGROUTE.exe  (version set by APP_BUILD in fragroute.py)
+echo  Building Fragnetic.exe  (version set by APP_BUILD in fragroute.py)
 echo ============================================================
 echo.
 
@@ -89,7 +89,7 @@ if exist "wireguard.exe" (
 REM --- 5) Build the exe ---
 echo Building exe ^(about a minute^)...
 %PY% -m PyInstaller --noconfirm --onefile --windowed --clean ^
-  --name FRAGROUTE ^
+  --name Fragnetic ^
   --icon assets\fragroute.ico ^
   --uac-admin ^
   --add-data "fragroute_ui.html;." ^
@@ -117,6 +117,7 @@ echo Building exe ^(about a minute^)...
   --hidden-import fragroute_setup ^
   --hidden-import fragroute_license ^
   --hidden-import fragroute_auth ^
+  --hidden-import fragroute_hardware ^
   --hidden-import fragroute_live ^
   --collect-all pystray ^
   --collect-all onnxruntime ^
@@ -181,11 +182,11 @@ if exist "dist\llm" (echo Local AI: llm folder present ^(coach LLM enabled^).) e
 echo.
 echo ============================================================
 echo  DONE.
-echo  Your app:     dist\FRAGROUTE.exe
+echo  Your app:     dist\Fragnetic.exe
 echo  Its configs:  dist\configs\
 if exist wireguard.exe echo  WireGuard:    bundled (all-in-one)
 echo.
-echo  Double-click FRAGROUTE.exe, click YES on the UAC prompt.
+echo  Double-click Fragnetic.exe, click YES on the UAC prompt.
 echo  The header shows the BUILD number so you know the new code is running.
 echo ============================================================
 echo.
