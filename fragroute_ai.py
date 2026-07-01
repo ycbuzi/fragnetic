@@ -623,8 +623,13 @@ def _llm_answer(ctx, msg):
     context = "\n".join(bits[:24])
     user = (("CONTEXT (FragPunk facts you've learned):\n%s\n\n" % context) if context else "") + \
            ("QUESTION: %s" % msg)
+    # adaptive personality: the engine passes a per-user coaching-style instruction
+    sys_content = _LLM_SYSTEM
+    persona = (ctx or {}).get("persona")
+    if persona:
+        sys_content = _LLM_SYSTEM + "\n\n" + persona
     try:
-        return chat([{"role": "system", "content": _LLM_SYSTEM},
+        return chat([{"role": "system", "content": sys_content},
                      {"role": "user", "content": user}])
     except Exception:
         return None

@@ -1085,6 +1085,12 @@
   .hw-dot.bad{background:#ff5a7a;box-shadow:0 0 8px #ff5a7a88}
   .hw-cap .lab{color:var(--text);font-weight:600;min-width:150px;display:inline-block}
   .hw-cap .why{color:var(--text-mute)}
+  /* coach personality panel */
+  .ai-persona{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:6px 0 10px;font-size:11px;color:var(--text-mute)}
+  .ai-persona .ap-label{color:var(--cyan);text-transform:uppercase;letter-spacing:.12em;font-size:10px}
+  .ap-style{color:var(--text);flex:1;min-width:120px;font-style:italic}
+  .ap-presets{display:flex;gap:4px;flex-wrap:wrap}
+  .ap-p.sel{border-color:var(--cyan);color:var(--cyan);box-shadow:0 0 8px var(--cyan-glow)}
 </style>
 </head>
 <body>
@@ -1493,6 +1499,18 @@
       <div class="right"><span class="ai-badge" id="aiBadge">connecting…</span><button class="mini-btn" id="aiSpeak" title="Read the coach's answers aloud">🔊 Voice: off</button><button class="mini-btn" id="aiClear">Clear</button></div>
     </div>
     <div class="ai-note">Ask anything about FragPunk — <b>weapon firing</b>, <b>crosshair / aim</b>, <b>game modes</b>, <b>economy</b>, <b>shard cards</b>, strategy, or any free-form question. A <b>local FragPunk AI</b> answers, grounded in what it's learned; it also pulls your <b>live data</b> (best region &amp; ping, queue stats, match state) and can run commands on request. All on your PC — no account, nothing leaves your machine.</div>
+    <div class="ai-persona" id="aiPersona">
+      <span class="ap-label">Coach vibe</span>
+      <span id="apStyle" class="ap-style">adapting to how you chat…</span>
+      <span class="ap-presets">
+        <button class="mini-btn ap-p" data-preset="soothing">Soothing</button>
+        <button class="mini-btn ap-p" data-preset="hype">Hype</button>
+        <button class="mini-btn ap-p" data-preset="analyst">Analyst</button>
+        <button class="mini-btn ap-p" data-preset="drill">Drill</button>
+        <button class="mini-btn ap-p" data-preset="friend">Friend</button>
+      </span>
+      <button class="mini-btn" id="apTestVoice" title="Hear the coach's neural voice">🔊 Test voice</button>
+    </div>
     <div class="ai-chat" id="aiChat"></div>
     <div class="ai-chips" id="aiChips"></div>
     <div class="ai-bar">
@@ -2880,7 +2898,7 @@ function switchTab(name){
   if(changing)fxTabSwitch(name);   // screen-tear + glitch-in transition
   // jumping to News? make sure it's loaded (in case the first pull failed)
   if(name==='news'&&!NEWS_OK)loadNews(true);
-  if(name==='coach' && typeof aiLlmStatus==='function')aiLlmStatus();
+  if(name==='coach' && typeof aiLlmStatus==='function'){ aiLlmStatus(); if(typeof apLoad==='function')apLoad(); }
   if(name==='footage' && typeof aifRefresh==='function'){ aifRefresh(); aifLoadOpts&&aifLoadOpts(); }
   if(name==='create' && typeof igStatus==='function'){ igStatus(); igLoad&&igLoad(); }
   if(name==='vision' && typeof mvLoad==='function'){ mvLoad(); fetch(API+'/api/ai/vision/warm').catch(()=>{}); }  // pre-load the model so Recognize is fast
@@ -4741,13 +4759,14 @@ function _aiAppend(role,text){
 // Voice output: read the coach's answers aloud (WebView2's built-in speech, offline).
 let _aiVoice = (function(){ try{ return localStorage.getItem('aiVoice')==='1'; }catch(e){ return false; } })();
 function _aiSpeak(text){
-  if(!_aiVoice || !('speechSynthesis' in window) || !text) return;
-  try{
-    const clean=String(text).replace(/\*\*/g,'').replace(/[•\-]\s/g,'').slice(0,600);
-    window.speechSynthesis.cancel();
-    const u=new SpeechSynthesisUtterance(clean); u.rate=1.05; u.pitch=1.0;
-    window.speechSynthesis.speak(u);
-  }catch(e){}
+  if(!_aiVoice || !text) return;
+  const clean=String(text).replace(/\*\*/g,'').replace(/[•\-]\s/g,'').replace(/[*_`#>]/g,'').slice(0,600);
+  // Prefer the app's NEURAL voice (Piper) via the backend -- sounds far better than
+  // the browser voice, and works in-game when the window is hidden. Falls back to
+  // browser speech only if the backend call fails outright.
+  fetch(API+'/api/ai/voice/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:clean})})
+    .then(r=>r.json()).then(j=>{ if(!(j&&j.ok) && 'speechSynthesis' in window){ const u=new SpeechSynthesisUtterance(clean); u.rate=1.05; window.speechSynthesis.speak(u); } })
+    .catch(()=>{ try{ if('speechSynthesis' in window){ const u=new SpeechSynthesisUtterance(clean); u.rate=1.05; window.speechSynthesis.speak(u); } }catch(e){} });
 }
 function _aiToggleVoice(){
   _aiVoice=!_aiVoice;
@@ -4755,6 +4774,28 @@ function _aiToggleVoice(){
   const b=document.getElementById('aiSpeak'); if(b)b.textContent='🔊 Voice: '+(_aiVoice?'on':'off');
   if(!_aiVoice && 'speechSynthesis' in window) window.speechSynthesis.cancel();
 }
+// ---- adaptive coach personality panel ----
+async function apLoad(){
+  try{ const j=await (await fetch(API+'/api/ai/persona')).json();
+    if(j.disabled) return;
+    const t=j.traits||{}, el=document.getElementById('apStyle');
+    if(el){
+      const w=t.warmth>0.66?'warm':t.warmth<0.34?'blunt':'balanced';
+      const e=t.energy>0.66?'high-energy':t.energy<0.34?'calm':'steady';
+      const d=t.detail>0.66?'detailed':t.detail<0.34?'concise':'focused';
+      el.textContent=w+' · '+e+' · '+d+(j.interactions?(' · learned from '+j.interactions+' chats'):' · adapts as you chat');
+    }
+    document.querySelectorAll('.ap-p').forEach(b=>b.classList.toggle('sel', b.dataset.preset===j.preset));
+  }catch(e){}
+}
+(function _apInit(){
+  document.querySelectorAll('.ap-p').forEach(b=>b.addEventListener('click', async()=>{
+    try{ await fetch(API+'/api/ai/persona/tune',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({preset:b.dataset.preset})}); }catch(e){}
+    apLoad(); toast('Coach vibe: '+b.dataset.preset,'ok');
+  }));
+  const tv=document.getElementById('apTestVoice');
+  if(tv)tv.addEventListener('click', async()=>{ toast('Playing coach voice…','ok'); try{ await fetch(API+'/api/ai/voice/test',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); }catch(e){} });
+})();
 function _aiEmpty(){
   const box=document.getElementById('aiChat'); if(!box)return;
   box.innerHTML='<div class="ai-empty">Ask me anything about your FragPunk play.<br>Tap a suggestion below or type a question.</div>';

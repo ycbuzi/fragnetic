@@ -26,6 +26,7 @@ stt/
 yolo/
 clip/
 geo/
+tts/
 *.mmdb
 ffmpeg.exe
 wireguard.exe

@@ -118,6 +118,8 @@ echo Building exe ^(about a minute^)...
   --hidden-import fragroute_license ^
   --hidden-import fragroute_auth ^
   --hidden-import fragroute_hardware ^
+  --hidden-import fragroute_tts ^
+  --hidden-import fragroute_persona ^
   --hidden-import maxminddb ^
   --collect-all maxminddb ^
   --hidden-import fragroute_live ^
@@ -183,6 +185,9 @@ REM  Server locator: the offline GeoIP DB (geo\*.mmdb) names ANY server in the
 REM  Live Game tab, including off-VPN raw match IPs. Downloaded via Setup; seed to dist.
 if exist "geo" xcopy /e /i /y /d geo "dist\geo" >nul
 if exist "dist\geo\dbip-city-lite.mmdb" (echo Server locator: GeoIP DB present.) else (echo [!] No dist\geo - off-VPN server names need the GeoIP DB from Setup.)
+REM  Coach VOICE: Piper neural TTS (binary + voice model) in the 'tts' sidecar.
+if exist "tts" xcopy /e /i /y /d tts "dist\tts" >nul
+if exist "dist\tts\piper\piper.exe" (echo Coach voice: Piper neural TTS present.) else (echo [!] No dist\tts - coach falls back to Windows SAPI voice.)
 if exist "dist\llm" (echo Local AI: llm folder present ^(coach LLM enabled^).) else (echo [!] No dist\llm - coach stays router-only until the model is added.)
 
 echo.

@@ -149,6 +149,16 @@ try:
 except Exception:
     fragroute_hardware = None
 
+try:
+    import fragroute_tts  # neural TTS (Piper) -- the coach's soothing voice
+except Exception:
+    fragroute_tts = None
+
+try:
+    import fragroute_persona  # per-user adaptive coach personality
+except Exception:
+    fragroute_persona = None
+
 
 def _captures_dir():
     """Base folder for the capture ring + saved clips (next to other app data)."""
@@ -492,12 +502,26 @@ SCOUT_STATE = {"text": "", "ts": 0}
 
 
 def _speak(text):
-    """Speak text via Windows SAPI from the BACKEND -- works in-game when the UI is
-    paused/hidden (browser speech can't). Fire-and-forget."""
+    """Speak text from the BACKEND (works in-game when the UI is paused/hidden).
+    Prefers the neural Piper voice (soothing/natural); falls back to Windows SAPI.
+    Fire-and-forget."""
     if OS != "Windows" or not text:
         return
 
     def _go():
+        # 1) neural Piper voice (the good one)
+        try:
+            if fragroute_tts is not None and fragroute_tts.available():
+                rate = None
+                try:
+                    rate = float(get_setting("ttsRate", 1.0)) or None
+                except Exception:
+                    rate = None
+                if fragroute_tts.speak(str(text)[:600], get_setting("ttsVoice", None), rate):
+                    return
+        except Exception:
+            pass
+        # 2) fallback: Windows SAPI (David/Zira)
         try:
             safe = str(text).replace('"', " ").replace("'", " ").replace("`", " ")[:400]
             ps = ("Add-Type -AssemblyName System.Speech; "
@@ -985,7 +1009,7 @@ def voice_command():
     _speak(reply)
 
 
-APP_BUILD = "15.2"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "15.3"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -3621,6 +3645,9 @@ DEFAULT_SETTINGS = {
     "voiceCmdHotkeyEnabled": False, # global hotkey: talk to the AI (mic -> whisper -> answer)
     "voiceCmdHotkey": "ctrl+alt+v", # the voice-command combo
     "voiceCmdSeconds": 5,           # how long the mic records per voice command
+    "coachSpeak": True,             # coach speaks its replies/callouts aloud (neural voice)
+    "ttsVoice": "",                 # selected Piper voice file ("" = first/default)
+    "ttsRate": 1.0,                 # speech length_scale (1.0 normal; >1 slower/calmer)
     "onlineLearning": False,        # let the coach fetch FragPunk-ONLY facts (official+wiki)
     "autoMapCapture": True,         # auto-snap one map screenshot a few seconds into each match
     "autoRevertOnSwitch": True,     # undo a mid-match VPN switch that makes ping worse/dead
@@ -7011,6 +7038,24 @@ class Handler(BaseHTTPRequestHandler):
                     pass
             return self._json({"ok": True})
 
+        if path == "/api/ai/voice/status":
+            # coach voice (neural Piper TTS) availability + installed voices
+            if fragroute_tts is None:
+                return self._json({"available": False, "voices": [], "engine": "sapi"})
+            st = fragroute_tts.status()
+            st["engine"] = "piper" if st.get("available") else "sapi"
+            st["selected"] = get_setting("ttsVoice", None)
+            st["rate"] = get_setting("ttsRate", 1.0)
+            st["enabled"] = get_setting("coachSpeak", True)
+            return self._json(st)
+
+        if path == "/api/ai/persona":
+            # this player's adaptive coaching-style profile
+            if fragroute_persona is None:
+                return self._json({"disabled": True})
+            user = ((fragroute_auth.current() if fragroute_auth else {}) or {}).get("username") or "default"
+            return self._json(fragroute_persona.status(user))
+
         if path == "/api/ai/image/status":
             if fragroute_imagegen is None:
                 return self._json({"available": False})
@@ -7532,12 +7577,30 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/ai/chat":
             if fragroute_ai is None:
                 return self._json({"ok": False, "reply": "AI module unavailable."}, 503)
+            msg = body.get("message", "")
+            ctx = _build_ai_ctx()
+            # ADAPTIVE PERSONALITY: learn how THIS player likes to be coached from
+            # their message, and inject the resulting tone into the coach's prompt.
+            _user = "default"
+            if fragroute_persona is not None:
+                try:
+                    _user = ((fragroute_auth.current() if fragroute_auth else {}) or {}).get("username") or "default"
+                    fragroute_persona.observe(_user, msg)
+                    ctx["persona"] = fragroute_persona.persona_prompt(_user)
+                except Exception:
+                    pass
             try:
-                out = fragroute_ai.ai_chat(body.get("message", ""), body.get("history"), _build_ai_ctx())
+                out = fragroute_ai.ai_chat(msg, body.get("history"), ctx)
                 diag("ai", True, msg="chat:%s" % out.get("tool"))
             except Exception as e:
                 diag("ai", False, msg="chat", exc=e)
                 raise
+            # speak the reply aloud in the coach's neural voice (gated; UI won't double-speak)
+            try:
+                if get_setting("coachSpeak", True) and body.get("speak") and out.get("reply"):
+                    _speak(out["reply"])
+            except Exception:
+                pass
             return self._json(out)
 
         if path == "/api/capture/start":
@@ -7611,6 +7674,46 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/ai/recognize":
             # capture the screen and identify weapons/lancers/abilities/map (grounded)
             return self._json(recognize_screen(body.get("imagePath") if body else None))
+
+        if path == "/api/ai/voice/test":
+            # speak a sample line so the user can hear the coach voice
+            line = (body.get("text") if body else None) or \
+                "Hey, welcome back. Nice work last game -- let's tighten up your crosshair and keep it rolling."
+            _speak(line)
+            return self._json({"ok": True, "engine": ("piper" if (fragroute_tts and fragroute_tts.available()) else "sapi")})
+
+        if path == "/api/ai/persona/tune":
+            # shape the coach's personality: preset base, explicit nudge, thumbs, or reset
+            if fragroute_persona is None:
+                return self._json({"disabled": True})
+            user = ((fragroute_auth.current() if fragroute_auth else {}) or {}).get("username") or "default"
+            if body.get("preset"):
+                fragroute_persona.set_base(user, body["preset"])
+            elif body.get("reset"):
+                fragroute_persona.set_base(user, "soothing")   # neutral-warm default
+            elif body.get("trait"):
+                fragroute_persona.nudge(user, body["trait"], float(body.get("delta", 0)))
+            elif body.get("reaction"):
+                fragroute_persona.observe(user, "", body["reaction"])
+            return self._json(fragroute_persona.status(user))
+
+        if path == "/api/ai/voice/preview":
+            # render a wav with a SPECIFIC voice/rate (for the picker) and return its URL
+            if fragroute_tts is None or not fragroute_tts.available():
+                return self._json({"ok": False, "message": "neural voice not installed"})
+            import tempfile as _tf
+            wav = os.path.join(_tf.gettempdir(), "fragnetic_preview.wav")
+            line = (body.get("text") if body else None) or "This is your Fragnetic coach. Let's get to work."
+            ok = fragroute_tts.synth(line, wav, body.get("voice") if body else None,
+                                     float(body.get("rate", 1.0)) if body else 1.0)
+            if not ok:
+                return self._json({"ok": False, "message": "synthesis failed"})
+            try:
+                import winsound
+                threading.Thread(target=lambda: winsound.PlaySound(wav, winsound.SND_FILENAME), daemon=True).start()
+            except Exception:
+                pass
+            return self._json({"ok": True})
 
         if path == "/api/ai/map/capture":
             # snap + describe the current map area into the Maps gallery
@@ -7839,6 +7942,10 @@ def main():
             fragroute_hardware.FFMPEG = fragroute_capture.find_ffmpeg() if fragroute_capture else None
         except Exception:
             fragroute_hardware.FFMPEG = None
+    if fragroute_tts is not None:
+        fragroute_tts.TTS_DIR = str(STATE["configs_dir"].parent / "tts")   # piper + voice models
+    if fragroute_persona is not None:
+        fragroute_persona.BASE_DIR = str(STATE["configs_dir"].parent)      # per-user personality store
     load_settings()
 
     # diagnostics on as early as possible so startup failures are captured too
