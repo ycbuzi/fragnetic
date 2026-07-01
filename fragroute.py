@@ -538,22 +538,48 @@ def scout_voice():
 
 
 def _auto_map_shot():
-    """Auto: grab ONE raw screenshot a few seconds into a match so the Maps gallery
-    fills in over time. No vision here (cheap) -- describe on demand via capture_map."""
+    """Auto: grab ONE screenshot of actual GAMEPLAY (not the shard-card pick) so the
+    Maps gallery fills in over time. FragPunk opens every round on the card-select
+    screen, so we wait past it and -- if the detector is available -- only KEEP a
+    frame that looks like gameplay (HUD visible), retrying if we still see cards."""
     if fragroute_capture is None:
         return
     try:
-        time.sleep(8)                      # let the round load past the buy/loading screen
         d = _maps_dir()
         d.mkdir(parents=True, exist_ok=True)
-        shot = d / ("map_%s.png" % time.strftime("%Y%m%d_%H%M%S", time.localtime()))
-        if fragroute_capture.capture_screenshot(str(shot)):
-            store = _maps_store()
+        gameplay_cues = {"minimap", "crosshair", "ammo counter", "health bar", "killfeed"}
+        have_det = (fragroute_yolo is not None and fragroute_yolo.available())
+        last = None
+        for attempt in range(6):
+            time.sleep(20 if attempt == 0 else 12)   # ~20s past the card pick, then +12s per retry
+            shot = d / ("map_%s.png" % time.strftime("%Y%m%d_%H%M%S", time.localtime()))
+            if not fragroute_capture.capture_screenshot(str(shot)):
+                continue
+            last = shot
+            is_cards = False
+            if have_det:
+                try:
+                    labels = {x.get("label") for x in fragroute_yolo.detect_image(str(shot), conf_thr=0.35)}
+                    # clearly the card screen: shard/ability picks and NO gameplay HUD
+                    is_cards = bool(labels & {"shard perk", "ability icon"}) and not (labels & gameplay_cues)
+                except Exception:
+                    is_cards = False
+            if is_cards and attempt < 5:
+                try:
+                    shot.unlink()          # still on cards -> discard and wait for gameplay
+                except Exception:
+                    pass
+                last = None
+                continue
+            store = _maps_store()          # keep it (gameplay / ambiguous / final try)
             store.setdefault("captures", []).insert(0, {
                 "image": shot.name, "notes": "", "ts": int(time.time() * 1000)})
             store["captures"] = store["captures"][:80]
             _save_maps(store)
-            diag("ai", True, msg="auto map shot")
+            _label_pool_add(str(shot), "map")   # admin-only: feed the labeling pool
+            diag("ai", True, msg="auto map shot (attempt %d)" % (attempt + 1))
+            return
+        diag("ai", bool(last), msg="auto map shot: best-effort" if last else "no gameplay frame")
     except Exception as e:
         diag("ai", False, msg="auto map shot", exc=e)
 
@@ -959,7 +985,7 @@ def voice_command():
     _speak(reply)
 
 
-APP_BUILD = "14.8"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "14.9"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
