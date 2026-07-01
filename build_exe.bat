@@ -36,7 +36,7 @@ REM  pywebview + pythonnet give the FRAMELESS native window (custom titlebar).
 REM  Without them the exe falls back to an Edge app-window that CAN'T be frameless.
 echo Installing dependencies...
 %PY% -m pip install --upgrade pip >nul 2>nul
-%PY% -m pip install pyinstaller pystray pillow pywebview pythonnet onnxruntime-directml numpy cryptography maxminddb
+%PY% -m pip install pyinstaller pystray pillow pywebview pythonnet onnxruntime-directml numpy cryptography maxminddb pyaudiowpatch
 if errorlevel 1 (
   echo [X] pip install failed. Check your internet connection and try again.
   pause
@@ -120,6 +120,9 @@ echo Building exe ^(about a minute^)...
   --hidden-import fragroute_hardware ^
   --hidden-import fragroute_tts ^
   --hidden-import fragroute_persona ^
+  --hidden-import fragroute_audio ^
+  --hidden-import pyaudiowpatch ^
+  --collect-all pyaudiowpatch ^
   --hidden-import maxminddb ^
   --collect-all maxminddb ^
   --hidden-import fragroute_live ^

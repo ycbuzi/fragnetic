@@ -7,13 +7,24 @@ SAPI). All local, no internet.
 
 The engine sets STT_DIR + FFMPEG. Pure stdlib (subprocess).
 """
+import math
 import os
 import re
 import subprocess
 import tempfile
+import time
+import wave
 from pathlib import Path
 
-APP_VOICE_BUILD = "voice-1"
+# pyaudiowpatch gives us real-time mic frames for voice-activity detection (stop
+# recording the instant you stop talking). Optional -- falls back to fixed-window
+# ffmpeg recording if it's not present.
+try:
+    import pyaudiowpatch as _pa
+except Exception:
+    _pa = None
+
+APP_VOICE_BUILD = "voice-2"    # voice-2: VAD (auto-stop on silence) for snappy voice chat
 
 STT_DIR = None             # set by engine; default <module|exe>/stt
 FFMPEG = None              # set by engine -> path to ffmpeg.exe (for mic capture)
@@ -104,6 +115,124 @@ def record(seconds=5):
         return wav if (os.path.exists(wav) and os.path.getsize(wav) > 0) else None
     except Exception:
         return None
+
+
+def vad_available():
+    return _pa is not None
+
+
+def _rms16_norm(data):
+    import array
+    a = array.array("h")
+    try:
+        a.frombytes(data)
+    except Exception:
+        return 0.0
+    if not a:
+        return 0.0
+    acc = 0.0
+    for v in a:
+        acc += v * v
+    return math.sqrt(acc / len(a)) / 32768.0
+
+
+def record_vad(max_seconds=12, start_timeout=5.0, silence_hang=0.8, min_speech=0.25):
+    """Record the mic with VOICE-ACTIVITY DETECTION: wait for you to start talking,
+    then stop ~`silence_hang`s after you stop -- so a short reply returns in ~1-2s
+    instead of always waiting a fixed window. Writes a 16kHz mono WAV (post-processed
+    through the same highpass/dynaudnorm/gain as record() so whisper hears it well).
+
+    Returns the wav path, or None if nothing was said. Falls back to a fixed-window
+    record() when pyaudio isn't available."""
+    if _pa is None:
+        return record(int(max_seconds))
+    rate = 16000
+    chunk = 512                       # 32ms frames at 16kHz -> responsive VAD
+    raw_path = os.path.join(tempfile.gettempdir(), "fragroute_voice_raw.wav")
+    p = _pa.PyAudio()
+    stream = None
+    try:
+        try:
+            idx = p.get_default_input_device_info().get("index")
+        except Exception:
+            idx = None
+        try:
+            stream = p.open(format=_pa.paInt16, channels=1, rate=rate, input=True,
+                            input_device_index=idx, frames_per_buffer=chunk)
+        except Exception:
+            return record(int(max_seconds))       # device won't open at 16k mono -> ffmpeg path
+        # 1) calibrate the noise floor from the first ~250ms
+        base = []
+        for _ in range(max(1, int(0.25 * rate / chunk))):
+            try:
+                base.append(_rms16_norm(stream.read(chunk, exception_on_overflow=False)))
+            except Exception:
+                break
+        floor = (sorted(base)[len(base) // 2] if base else 0.0)
+        thr = max(0.012, floor * 2.5 + 0.006)     # speech threshold above the floor
+        frames = []
+        started = False
+        t0 = time.time()
+        last_voice = t0
+        speech_frames = 0
+        while True:
+            try:
+                data = stream.read(chunk, exception_on_overflow=False)
+            except Exception:
+                break
+            now = time.time()
+            lvl = _rms16_norm(data)
+            if not started:
+                if lvl >= thr:
+                    started = True
+                    last_voice = now
+                    frames.append(data)
+                    speech_frames += 1
+                elif now - t0 > start_timeout:
+                    break                          # nobody spoke -> give up
+                continue
+            frames.append(data)
+            if lvl >= thr:
+                last_voice = now
+                speech_frames += 1
+            # stop conditions: trailing silence, or hit the max length
+            if now - last_voice >= silence_hang:
+                break
+            if now - t0 >= max_seconds:
+                break
+        if not started or (speech_frames * chunk / float(rate)) < min_speech:
+            return None                            # nothing meaningful captured
+        try:
+            with wave.open(raw_path, "wb") as w:
+                w.setnchannels(1)
+                w.setsampwidth(2)
+                w.setframerate(rate)
+                w.writeframes(b"".join(frames))
+        except Exception:
+            return None
+    finally:
+        try:
+            if stream is not None:
+                stream.stop_stream()
+                stream.close()
+        except Exception:
+            pass
+        try:
+            p.terminate()
+        except Exception:
+            pass
+    # 2) clean it up through the same filter chain record() uses (whisper likes it)
+    out = os.path.join(tempfile.gettempdir(), "fragroute_voice.wav")
+    if FFMPEG:
+        try:
+            subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", raw_path,
+                            "-af", "highpass=f=90,dynaudnorm=p=0.9:m=12,volume=2",
+                            "-ar", "16000", "-ac", "1", out], timeout=20, **_NOWIN)
+            if os.path.exists(out) and os.path.getsize(out) > 0:
+                return out
+        except Exception:
+            pass
+    return raw_path if os.path.exists(raw_path) else None
 
 
 def transcribe(wav):

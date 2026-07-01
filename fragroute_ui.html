@@ -5297,6 +5297,7 @@ async function aifLoadClips(){
     const usage = u ? ` · <b>${u.usedGB} / ${cap} GB</b> · ${u.freeGB} GB free` : '';
     const head = `<div class="aif-clipdir">📁 <span class="mono" title="${_aiEsc(dir)}">${_aiEsc(dir)}</span>`
       + `<button class="mini-btn" id="aifOpenDir">Open folder</button>`
+      + `<button class="mini-btn" id="aifAudioTest" title="Play some game/desktop sound, then click: confirms your recordings will have audio">🔊 Test game audio</button>`
       + `<span class="aif-clipcount">${items.length} recording${items.length===1?'':'s'}${usage}</span></div>`;
     box.innerHTML = head + (items.length ? items.slice(0,40).map(c=>{
       const d=c.ts?new Date(c.ts):null;
@@ -5311,9 +5312,21 @@ async function aifLoadClips(){
       </div>`;
     }).join('') : `<div class="aif-empty">No recordings yet. Hit <b>● Record</b> (or turn on Auto-record matches) and your gameplay shows up here with its date, time, and file path.</div>`);
     const ob=document.getElementById('aifOpenDir'); if(ob)ob.addEventListener('click',aifOpenFolder);
+    const ab=document.getElementById('aifAudioTest'); if(ab)ab.addEventListener('click',aifAudioTest);
   }catch(e){}
 }
 async function aifOpenFolder(){ try{ await fetch(API+'/api/capture/openfolder',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); }catch(e){} }
+async function aifAudioTest(){
+  const b=document.getElementById('aifAudioTest'); if(!b)return;
+  const old=b.textContent; b.disabled=true; b.textContent='🔊 Listening…';
+  try{
+    const j=await (await fetch(API+'/api/capture/audiotest')).json();
+    if(!j.have){ toast(j.message||'System-audio capture unavailable','warn'); }
+    else if(j.hasSound){ toast('✓ Game audio detected on "'+(j.output||'default')+'" — recordings will have sound (level '+Math.round((j.level||0)*100)+'%)','ok'); }
+    else { toast('No sound detected on "'+(j.output||'default')+'". Play some audio and re-test — make sure your game outputs to this device.','warn'); }
+  }catch(e){ toast('Audio test failed','err'); }
+  b.disabled=false; b.textContent=old;
+}
 function aifEditClip(name){            // send this recording to the Video Editor
   switchTab('video');
   setTimeout(()=>{ try{ if(typeof vidFocusClip==='function')vidFocusClip(name); else if(typeof vidLoad==='function')vidLoad(); }catch(e){} }, 250);

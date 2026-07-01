@@ -29,7 +29,14 @@ import threading
 import time
 from pathlib import Path
 
-APP_CAPTURE_BUILD = "cap-1"
+# WASAPI loopback audio (records the REAL default output, not silent Stereo Mix).
+# Optional -- if unavailable we fall back to the old dshow-loopback path.
+try:
+    import fragroute_audio
+except Exception:
+    fragroute_audio = None
+
+APP_CAPTURE_BUILD = "cap-2"   # cap-2: WASAPI loopback audio (fixes silent recordings)
 
 # Module state (guarded by _LOCK)
 _LOCK = threading.Lock()
@@ -248,11 +255,21 @@ def start(base_dir, opts=None):
         gpu = opts.get("gpu", DEFAULT_GPU)
         seg = int(opts.get("seg_seconds", SEG_SECONDS))
         nseg = int(opts.get("ring_segments", RING_SEGMENTS))
-        # AUDIO: capture system audio (game sound) from a loopback if available + enabled.
-        # Default ON; auto-detects Stereo Mix / loopback. Falls back to video-only if the
-        # device fails (so a bad audio device never breaks recording).
+        # AUDIO: capture the game sound. PREFERRED path = WASAPI loopback of the real
+        # default-output device (fragroute_audio) -- works for USB/HDMI/Bluetooth/Yeti
+        # outputs where "Stereo Mix (Realtek)" is dead silent. We record that to a
+        # separate WAV and mux it in on save, so ffmpeg stays VIDEO-ONLY (no dshow).
+        # Only if WASAPI loopback is unavailable do we fall back to the old dshow
+        # Stereo-Mix path (which is muxed straight into the segments).
+        want_audio = bool(opts.get("record_audio", True))
+        wasapi_audio = False
+        if want_audio and fragroute_audio is not None and fragroute_audio.available():
+            try:
+                wasapi_audio = fragroute_audio.start(str(ring))
+            except Exception:
+                wasapi_audio = False
         audio_device = None
-        if opts.get("record_audio", True):
+        if want_audio and not wasapi_audio:                 # fallback: dshow Stereo Mix
             audio_device = opts.get("audio_device") or detect_audio_loopback()
         flags = 0x08000000 if os.name == "nt" else 0
 
@@ -276,14 +293,24 @@ def start(base_dir, opts=None):
                     proc = _launch(None)
                 except Exception as e:
                     return {"ok": False, "message": "Failed to start ffmpeg: %s" % e}
+        # if the WASAPI loopback thread died immediately, don't claim we have audio
+        if wasapi_audio and fragroute_audio is not None and not fragroute_audio.is_recording():
+            wasapi_audio = False
         _STATE["audio_device"] = audio_device
+        _STATE["wasapi_audio"] = wasapi_audio
         _STATE["proc"] = proc
         _STATE["ring_dir"] = ring
         _STATE["started"] = time.time()
         _STATE["settings"] = {"fps": fps, "bitrate": bitrate, "encoder": encoder,
                               "gpu": gpu, "seg_seconds": seg, "ring_segments": nseg,
-                              "buffer_seconds": seg * nseg, "audio": audio_device}
-        amsg = (" + audio (%s)" % audio_device) if audio_device else " (video only)"
+                              "buffer_seconds": seg * nseg,
+                              "audio": ("loopback" if wasapi_audio else audio_device)}
+        if wasapi_audio:
+            amsg = " + audio (system loopback)"
+        elif audio_device:
+            amsg = " + audio (%s)" % audio_device
+        else:
+            amsg = " (video only)"
         # nseg == 0 => ffmpeg segment_wrap 0 => UNLIMITED segments = full-match record
         # (no rolling overwrite); otherwise it's the rolling N-second highlight buffer.
         mode = "full match" if nseg == 0 else ("rolling %ds buffer" % (seg * nseg))
@@ -292,6 +319,12 @@ def start(base_dir, opts=None):
 
 
 def stop():
+    # stop the loopback audio thread FIRST so the WAV is finalized before any save
+    if _STATE.get("wasapi_audio") and fragroute_audio is not None:
+        try:
+            fragroute_audio.stop()
+        except Exception:
+            pass
     with _LOCK:
         p = _STATE["proc"]
         if p is None:
@@ -318,6 +351,40 @@ def _recent_segments(ring_dir, seconds, seg_seconds):
     return segs[-need:]
 
 
+def _save_concat(ff, parts, out, timeout, tail_seconds=None):
+    """Concatenate `parts` (video-only .ts segments) into `out`, muxing in the
+    WASAPI-loopback WAV when we recorded one (so clips actually have game sound).
+    tail_seconds trims the audio to the last N sec for a rolling clip. Falls back to
+    a plain stream-copy when there's no separate audio (dshow path / video-only).
+    Returns (rc, log)."""
+    concat = "concat:" + "|".join(str(p) for p in parts)
+    wav = None
+    if _STATE.get("wasapi_audio") and fragroute_audio is not None:
+        try:
+            tmp = Path(out).with_suffix(".mux.wav")
+            wav = fragroute_audio.snapshot(str(tmp), tail_seconds=tail_seconds)
+        except Exception:
+            wav = None
+    if wav and Path(wav).exists() and Path(wav).stat().st_size > 1024:
+        rc, log = _run([ff, "-hide_banner", "-loglevel", "error", "-y",
+                        "-i", concat, "-i", wav,
+                        "-map", "0:v:0", "-map", "1:a:0",
+                        "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
+                        "-movflags", "+faststart", "-shortest", str(out)],
+                       timeout=timeout)
+        try:
+            os.remove(wav)
+        except Exception:
+            pass
+        if rc == 0 and Path(out).exists():
+            return rc, log
+        # mux failed -> fall through to a video-only copy so we never lose footage
+    rc, log = _run([ff, "-hide_banner", "-loglevel", "error", "-y",
+                    "-i", concat, "-c", "copy", "-movflags", "+faststart", str(out)],
+                   timeout=timeout)
+    return rc, log
+
+
 def save_clip(base_dir, seconds=30, label=None):
     """Concatenate the last ~`seconds` of the ring into clips/ (no re-encode)."""
     with _LOCK:
@@ -334,10 +401,7 @@ def save_clip(base_dir, seconds=30, label=None):
     stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
     safe = "".join(c for c in (label or "clip") if c.isalnum() or c in "-_") or "clip"
     out = clips / ("%s_%s.mp4" % (stamp, safe))
-    concat = "concat:" + "|".join(str(p) for p in parts)
-    rc, log = _run([ff, "-hide_banner", "-loglevel", "error", "-y",
-                    "-i", concat, "-c", "copy", "-movflags", "+faststart", str(out)],
-                   timeout=30)
+    rc, log = _save_concat(ff, parts, out, timeout=45, tail_seconds=seconds)
     if rc != 0 or not out.exists():
         return {"ok": False, "message": "Clip save failed: %s" % (log[:200] or "unknown")}
     return {"ok": True, "file": str(out), "name": out.name,
@@ -361,10 +425,7 @@ def save_full(base_dir, label="match"):
     stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
     safe = "".join(c for c in (label or "match") if c.isalnum() or c in "-_") or "match"
     out = clips / ("%s_%s.mp4" % (stamp, safe))
-    concat = "concat:" + "|".join(str(p) for p in segs)
-    rc, log = _run([ff, "-hide_banner", "-loglevel", "error", "-y",
-                    "-i", concat, "-c", "copy", "-movflags", "+faststart", str(out)],
-                   timeout=300)
+    rc, log = _save_concat(ff, segs, out, timeout=300, tail_seconds=None)
     if rc != 0 or not out.exists():
         return {"ok": False, "message": "Full save failed: %s" % (log[:200] or "unknown")}
     mins = round(len(segs) * _STATE["settings"].get("seg_seconds", SEG_SECONDS) / 60.0, 1)

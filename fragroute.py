@@ -471,12 +471,42 @@ def recognize_screen(image_path=None):
                              "%s." % (" (%s)" % err if err else ""))}
 
 
+def _gameplay_capture_ready():
+    """Can we actually capture GAMEPLAY right now -- not the Windows desktop, the
+    taskbar, or this app? Returns (ok, reason).
+
+    A recording IS ready: the ring buffer holds real game frames. A LIVE grab only
+    sees the game when FragPunk is the FOREGROUND window -- a fullscreen-exclusive
+    game is invisible from any other window, so grabbing while you're alt-tabbed to
+    Fragnetic just captures your desktop (the reported bug). In that case we bail
+    with guidance instead of saving a junk desktop shot to the gallery/label pool."""
+    try:
+        if fragroute_capture is not None and fragroute_capture.is_recording():
+            return True, "buffer"
+    except Exception:
+        pass
+    try:
+        gp = game_proc_status()
+    except Exception:
+        gp = {"running": False, "foreground": False}
+    if not gp.get("running"):
+        return False, "FragPunk isn't running, so there's no gameplay to look at yet."
+    if not gp.get("foreground"):
+        return False, ("FragPunk is running but not in focus — from here I'd only capture your "
+                       "desktop. Use the in-game Scout hotkey (it works while you're in the match), "
+                       "or turn on Auto-record and I'll grab a live gameplay frame from the buffer.")
+    return True, "foreground"
+
+
 def capture_map():
     """Snap the current screen and have the vision model describe the map area --
     sightlines, angles, cover/corners, and a position to hold. Stored in a gallery
     so you build a picture of every map over time."""
     if fragroute_llm is None or fragroute_capture is None:
         return {"ok": False, "message": "vision/capture unavailable"}
+    ready, why = _gameplay_capture_ready()
+    if not ready:
+        return {"ok": False, "message": why}
     d = _maps_dir()
     d.mkdir(parents=True, exist_ok=True)
     stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
@@ -576,6 +606,11 @@ def _auto_map_shot():
         last = None
         for attempt in range(6):
             time.sleep(20 if attempt == 0 else 12)   # ~20s past the card pick, then +12s per retry
+            # don't grab the desktop/taskbar: only shoot when we can actually see
+            # gameplay (recording buffer, or FragPunk is the foreground window).
+            ready, _why = _gameplay_capture_ready()
+            if not ready:
+                continue
             shot = d / ("map_%s.png" % time.strftime("%Y%m%d_%H%M%S", time.localtime()))
             if not fragroute_capture.capture_screenshot(str(shot)):
                 continue
@@ -987,6 +1022,19 @@ def _build_ai_ctx():
     return ctx
 
 
+def _voice_record(max_secs):
+    """Record the mic for a turn. Prefers VAD (auto-stops the moment you finish
+    talking -> a short reply comes back in ~1-2s) and falls back to a fixed window."""
+    if fragroute_voice is None:
+        return None
+    try:
+        if getattr(fragroute_voice, "vad_available", lambda: False)():
+            return fragroute_voice.record_vad(max_seconds=max(6, int(max_secs)))
+    except Exception:
+        pass
+    return fragroute_voice.record(max(4, int(max_secs)))
+
+
 def voice_command():
     """Hotkey: record the mic, transcribe (whisper), run it through the coach, and
     SPEAK the answer. Lets you talk to the AI hands-free while in-game."""
@@ -1004,7 +1052,7 @@ def voice_command():
     secs = int(get_setting("voiceCmdSeconds", 5))
     wav = None
     try:
-        wav = fragroute_voice.record(max(4, secs))
+        wav = _voice_record(secs)
         text = fragroute_voice.transcribe(wav) if wav else None
     except Exception:
         text = None
@@ -1085,7 +1133,7 @@ def _converse_loop():
     while _CONVERSE["on"]:
         try:
             secs = int(get_setting("voiceCmdSeconds", 6))
-            wav = fragroute_voice.record(max(4, secs)) if fragroute_voice else None
+            wav = _voice_record(secs) if fragroute_voice else None
             if not _CONVERSE["on"]:
                 break
             text = fragroute_voice.transcribe(wav) if wav else None
@@ -1130,7 +1178,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "15.7"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "16.0"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -4122,14 +4170,30 @@ def _autodetect_tick():
             # as Singapore/asia-se). So prefer the active route's region; fall back
             # to the server's GeoIP/DNS region only when not on a tunnel.
             geo_rid = (server or {}).get("regionId")
+            on_vpn = bool(STATE.get("active_region"))
             rid = STATE.get("active_region") or geo_rid
             # harvest the real game-server IP under the region you actually queued
             # in, so the Route Optimizer registers it (skip in Training Base).
             if rid and not training:
                 try:
                     record_server(rid, server)
+                    # OFF-VPN tracking: with no tunnel, GeoIP names the raw match IP
+                    # (verified: 8.211->eu, 47.246->us-east, etc.). Measure the REAL
+                    # ping to the live server we just harvested so the Live Game /
+                    # Route Optimizer show truth (ping beats GeoIP guessing), and log
+                    # it so off-VPN match tracking is observable in the diag.
+                    if not on_vpn:
+                        diag("scout", True, msg="tracked off-VPN match: %s in %s (%s)"
+                             % (server.get("ip"), rid, server.get("where") or "?"))
+                        threading.Thread(target=lambda: scout_ping_servers([rid]),
+                                         daemon=True).start()
                 except Exception:
                     pass
+            elif not training and not on_vpn and (server or {}).get("ip"):
+                # off-VPN but GeoIP couldn't map a region -> don't silently drop it;
+                # note the raw server so the user can still see what they connected to.
+                diag("scout", False, msg="off-VPN match on %s (region unresolved)"
+                     % (server.get("ip")))
             qs = AUTODETECT["queueStartTs"]
             manual = bool(AUTODETECT.get("queueManual"))
             if qs and not training:
@@ -7123,6 +7187,22 @@ class Handler(BaseHTTPRequestHandler):
             if fragroute_capture is None:
                 return self._json({"available": False, "message": "capture module unavailable"})
             return self._json(fragroute_capture.status(_captures_dir()))
+
+        if path == "/api/capture/audiotest":
+            # Record a short burst from the system-audio loopback and report the
+            # level, so the user can confirm "my game sound IS being captured"
+            # (recordings were silent when Stereo Mix mirrored the wrong device).
+            try:
+                import fragroute_audio
+            except Exception:
+                fragroute_audio = None
+            if fragroute_audio is None or not fragroute_audio.available():
+                return self._json({"ok": False, "have": False,
+                                   "message": "System-audio capture unavailable on this build."})
+            res = fragroute_audio.probe(seconds=1.2)
+            res["have"] = True
+            res["output"] = fragroute_audio.default_output_name()
+            return self._json(res)
 
         if path == "/api/capture/clips":
             if fragroute_capture is None:
