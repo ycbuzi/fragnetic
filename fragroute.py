@@ -985,7 +985,7 @@ def voice_command():
     _speak(reply)
 
 
-APP_BUILD = "15.1"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "15.2"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -2683,13 +2683,22 @@ def game_status():
         dns_rid = _dns_region_for_ip(host)
         learned = _learned_server_match(host)
         learned_rid = learned.get("regionId") if learned else None
-        rid = dns_rid or learned_rid or _geo_region(geo)
+        geo_rid = _geo_region(geo)
+        # GeoIP now uses a real offline DB, so it's RELIABLE for the actual server IP.
+        # The DNS-CNAME hint can bleed FragPunk's Frankfurt "home backend" region onto
+        # a US match (the false "Europe match found"). So when GeoIP and DNS disagree,
+        # TRUST GeoIP -- it reflects where the IP actually is. Otherwise DNS > learned > geo.
+        if dns_rid and geo_rid and dns_rid != geo_rid:
+            rid = geo_rid
+            src = "geoip(vs-dns)"
+        else:
+            rid = dns_rid or learned_rid or geo_rid
+            src = ("dns" if dns_rid else "learned" if learned_rid else "geoip" if geo_rid else None)
         region = REGION_BY_ID.get(rid)
         # city/country: GeoIP first, fall back to whatever we learned for this IP
         city = geo.get("city") or (learned.get("city") if learned else None)
         country = geo.get("country") or (learned.get("country") if learned else None)
         where = ", ".join([x for x in (city, country) if x]) or None
-        src = ("dns" if dns_rid else "learned" if learned_rid else "geoip" if rid else None)
         return {
             "ip": host, "port": port, "proto": "TCP",
             "city": city, "country": country,
