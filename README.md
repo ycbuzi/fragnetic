@@ -62,7 +62,7 @@ each card default to the lowest-ping server in the region automatically.
 ## Run it as a Windows app  (recommended)
 
 FRAGROUTE now ships as a proper desktop app: a native window with its own icon and
-a **system-tray** presence, so it sits next to Fragpunk on your second monitor. It
+a **system-tray** presence, so it sits next to Fragpunk on your  monitor. It
 does **not** hook, inject into, or overlay the game, so it's fine with ACE — it's
 just a separate window that switches your VPN route.
 
