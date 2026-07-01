@@ -985,7 +985,7 @@ def voice_command():
     _speak(reply)
 
 
-APP_BUILD = "15.0"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "15.1"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -1195,8 +1195,14 @@ def setup_status():
         except Exception:
             add("voice", "Voice commands", False)
     if fragroute_video is not None:
-        add("video", "Video editor", fragroute_video.available(), "",
-            "" if fragroute_video.available() else "Needs the same ffmpeg as the recorder.")
+        # mirror the recorder's ffmpeg -- and self-heal fragroute_video.FFMPEG if it
+        # somehow wasn't wired, so this never shows a false "needs ffmpeg".
+        _ff = fragroute_capture.find_ffmpeg() if fragroute_capture else None
+        if _ff and not getattr(fragroute_video, "FFMPEG", None):
+            fragroute_video.FFMPEG = _ff
+        vok = fragroute_video.available() or bool(_ff)
+        add("video", "Video editor", vok, "",
+            "" if vok else "Needs the same ffmpeg as the recorder.")
 
     ready = sum(1 for i in items if i["ok"])
     return {"items": items, "ready": ready, "total": len(items), "build": APP_BUILD}
