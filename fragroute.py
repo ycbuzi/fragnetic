@@ -1020,16 +1020,117 @@ def voice_command():
     _beep(1200, 90)            # high beep = got it, thinking
     SCOUT_STATE.update(text="you said: " + text, ts=int(time.time() * 1000))
     diag("ai", True, msg="voice: " + text[:60])
+    user = ((fragroute_auth.current() if fragroute_auth else {}) or {}).get("username") or "default"
+    _speak(_coach_respond(text, user) or "I'm not sure.")
+
+
+def _coach_respond(text, user="default", history=None):
+    """Run the coach on a message with the right model (via _build_ai_ctx, which keeps
+    AI off the 4070 while the game runs) + this player's adaptive persona. Returns the
+    reply text or None. Shared by voice command, voice-to-voice, and chat."""
+    if fragroute_ai is None:
+        return None
+    ctx = _build_ai_ctx()
+    if fragroute_persona is not None:
+        try:
+            fragroute_persona.observe(user, text)
+            ctx["persona"] = fragroute_persona.persona_prompt(user)
+        except Exception:
+            pass
     try:
-        out = fragroute_ai.ai_chat(text, None, _build_ai_ctx())
-        reply = (out or {}).get("reply") or "I'm not sure."
+        out = fragroute_ai.ai_chat(text, history, ctx)
+        return (out or {}).get("reply")
     except Exception as e:
-        reply = "That hit an error."
-        diag("ai", False, msg="voice chat", exc=e)
-    _speak(reply)
+        diag("ai", False, msg="coach_respond", exc=e)
+        return None
 
 
-APP_BUILD = "15.6"    # bump on every change; shown in the UI header so you can see what's running
+def _speak_sync(text):
+    """BLOCKING speak (waits until finished) so the voice-chat loop doesn't record
+    itself talking. Neural Piper voice preferred, SAPI fallback."""
+    if not text:
+        return
+    try:
+        if fragroute_tts is not None and fragroute_tts.available():
+            rate = None
+            try:
+                rate = float(get_setting("ttsRate", 1.0)) or None
+            except Exception:
+                rate = None
+            if fragroute_tts.speak(str(text)[:600], get_setting("ttsVoice", None), rate):
+                return
+    except Exception:
+        pass
+    try:
+        safe = str(text).replace("'", " ").replace('"', " ").replace("`", " ")[:400]
+        ps = ("Add-Type -AssemblyName System.Speech; "
+              "(New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('%s')" % safe)
+        subprocess.run(["powershell", "-NoProfile", "-Command", ps], timeout=45, **_NO_WINDOW_KW)
+    except Exception:
+        pass
+
+
+_CONVERSE = {"on": False, "history": []}
+_CONVERSE_STOP = ("stop voice", "stop chat", "stop listening", "that's all", "thats all",
+                  "end chat", "end conversation", "goodbye coach", "we're done", "were done", "stop talking")
+
+
+def _converse_loop():
+    """VOICE-TO-VOICE: listen -> transcribe -> coach -> SPEAK (wait) -> repeat, until
+    stopped. Records the MIC (not the speaker) and waits for the coach to finish
+    talking before listening again, so it never hears itself."""
+    user = ((fragroute_auth.current() if fragroute_auth else {}) or {}).get("username") or "default"
+    _speak_sync("Voice chat on. Talk to me whenever. Say stop when you're done.")
+    idle = 0
+    while _CONVERSE["on"]:
+        try:
+            secs = int(get_setting("voiceCmdSeconds", 6))
+            wav = fragroute_voice.record(max(4, secs)) if fragroute_voice else None
+            if not _CONVERSE["on"]:
+                break
+            text = fragroute_voice.transcribe(wav) if wav else None
+            if not text or len(text.strip()) < 2:
+                idle += 1
+                if idle >= 20:                 # ~2 min of silence -> auto-stop
+                    _speak_sync("I'll stop listening for now.")
+                    break
+                continue
+            idle = 0
+            low = text.lower().strip()
+            if any(w in low for w in _CONVERSE_STOP):
+                _speak_sync("Alright, voice chat off.")
+                break
+            SCOUT_STATE.update(text="you: " + text, ts=int(time.time() * 1000))
+            diag("ai", True, msg="converse: " + text[:50])
+            reply = _coach_respond(text, user, _CONVERSE["history"])
+            if reply:
+                _CONVERSE["history"].append({"role": "user", "content": text})
+                _CONVERSE["history"].append({"role": "assistant", "content": reply})
+                _CONVERSE["history"] = _CONVERSE["history"][-12:]
+                SCOUT_STATE.update(text="coach: " + reply[:90], ts=int(time.time() * 1000))
+                _speak_sync(reply)             # blocks until spoken, THEN listen again
+        except Exception as e:
+            diag("ai", False, msg="converse", exc=e)
+            time.sleep(1)
+    _CONVERSE["on"] = False
+
+
+def converse_start():
+    if _CONVERSE["on"]:
+        return {"ok": True, "message": "Voice chat already on.", "on": True}
+    if fragroute_voice is None or not fragroute_voice.available():
+        return {"ok": False, "message": "Voice needs a mic + the whisper model (see Setup).", "on": False}
+    _CONVERSE.update(on=True, history=[])
+    threading.Thread(target=_converse_loop, daemon=True).start()
+    return {"ok": True, "message": "Voice chat on -- just talk.", "on": True}
+
+
+def converse_stop():
+    _CONVERSE["on"] = False
+    return {"ok": True, "message": "Voice chat off.", "on": False}
+
+
+APP_BUILD = "15.7"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -7067,6 +7168,7 @@ class Handler(BaseHTTPRequestHandler):
             st["selected"] = get_setting("ttsVoice", None)
             st["rate"] = get_setting("ttsRate", 1.0)
             st["enabled"] = get_setting("coachSpeak", True)
+            st["conversing"] = bool(_CONVERSE.get("on"))
             return self._json(st)
 
         if path == "/api/ai/persona":
@@ -7701,6 +7803,15 @@ class Handler(BaseHTTPRequestHandler):
                 "Hey, welcome back. Nice work last game -- let's tighten up your crosshair and keep it rolling."
             _speak(line)
             return self._json({"ok": True, "engine": ("piper" if (fragroute_tts and fragroute_tts.available()) else "sapi")})
+
+        if path == "/api/ai/voice/converse":
+            # hands-free VOICE-TO-VOICE conversation: start/stop the listen<->speak loop
+            act = (body.get("action") if body else None) or "toggle"
+            if act == "stop":
+                return self._json(converse_stop())
+            if act == "toggle" and _CONVERSE.get("on"):
+                return self._json(converse_stop())
+            return self._json(converse_start())
 
         if path == "/api/ai/persona/tune":
             # shape the coach's personality: preset base, explicit nudge, thumbs, or reset

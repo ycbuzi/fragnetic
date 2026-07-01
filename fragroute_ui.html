@@ -1091,6 +1091,7 @@
   .ap-style{color:var(--text);flex:1;min-width:120px;font-style:italic}
   .ap-presets{display:flex;gap:4px;flex-wrap:wrap}
   .ap-p.sel{border-color:var(--cyan);color:var(--cyan);box-shadow:0 0 8px var(--cyan-glow)}
+  .mini-btn.sel{border-color:var(--cyan);color:var(--cyan);box-shadow:0 0 8px var(--cyan-glow)}
 </style>
 </head>
 <body>
@@ -1496,7 +1497,7 @@
   <!-- ===================== AI: COACH (chat) ===================== -->
   <div class="tab-pane" data-pane="coach">
     <div class="section-title"><span>AI Coach</span>
-      <div class="right"><span class="ai-badge" id="aiBadge">connecting…</span><button class="mini-btn" id="aiSpeak" title="Read the coach's answers aloud">🔊 Voice: off</button><button class="mini-btn" id="aiClear">Clear</button></div>
+      <div class="right"><span class="ai-badge" id="aiBadge">connecting…</span><button class="mini-btn" id="aiConverse" title="Hands-free voice-to-voice conversation -- just talk">🎙️ Talk: off</button><button class="mini-btn" id="aiSpeak" title="Read the coach's answers aloud">🔊 Voice: off</button><button class="mini-btn" id="aiClear">Clear</button></div>
     </div>
     <div class="ai-note">Ask anything about FragPunk — <b>weapon firing</b>, <b>crosshair / aim</b>, <b>game modes</b>, <b>economy</b>, <b>shard cards</b>, strategy, or any free-form question. A <b>local FragPunk AI</b> answers, grounded in what it's learned; it also pulls your <b>live data</b> (best region &amp; ping, queue stats, match state) and can run commands on request. All on your PC — no account, nothing leaves your machine.</div>
     <div class="ai-persona" id="aiPersona">
@@ -4774,6 +4775,22 @@ function _aiToggleVoice(){
   const b=document.getElementById('aiSpeak'); if(b)b.textContent='🔊 Voice: '+(_aiVoice?'on':'off');
   if(!_aiVoice && 'speechSynthesis' in window) window.speechSynthesis.cancel();
 }
+// ---- hands-free voice-to-voice conversation ----
+let _converseOn=false;
+async function _aiToggleConverse(){
+  const b=document.getElementById('aiConverse');
+  try{ const j=await (await fetch(API+'/api/ai/voice/converse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'toggle'})})).json();
+    _converseOn=!!(j&&j.on);
+    if(b){ b.textContent='🎙️ Talk: '+(_converseOn?'ON':'off'); b.classList.toggle('sel',_converseOn); }
+    if(j&&j.message)toast(j.message, (j&&j.ok===false)?'warn':'ok');
+  }catch(e){ toast('Voice chat toggle failed','err'); }
+}
+async function _aiConverseSync(){
+  try{ const j=await (await fetch(API+'/api/ai/voice/status')).json();
+    _converseOn=!!(j&&j.conversing);
+    const b=document.getElementById('aiConverse'); if(b){ b.textContent='🎙️ Talk: '+(_converseOn?'ON':'off'); b.classList.toggle('sel',_converseOn); }
+  }catch(e){}
+}
 // ---- adaptive coach personality panel ----
 async function apLoad(){
   try{ const j=await (await fetch(API+'/api/ai/persona')).json();
@@ -5246,6 +5263,9 @@ async function aiLlmStatus(){
   if(clr)clr.addEventListener('click',()=>{ _aiEmpty(); });
   const spk=document.getElementById('aiSpeak');
   if(spk){ spk.textContent='🔊 Voice: '+(_aiVoice?'on':'off'); spk.addEventListener('click',_aiToggleVoice); }
+  const cnv=document.getElementById('aiConverse');
+  if(cnv)cnv.addEventListener('click',_aiToggleConverse);
+  _aiConverseSync();
   _aiRenderChips(); _aiEmpty(); aiLlmStatus();
   setInterval(()=>{ if(_coachOnTab()&&!document.hidden)aiLlmStatus(); }, 5000);
 })();
