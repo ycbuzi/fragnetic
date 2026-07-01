@@ -273,7 +273,12 @@ def capture_match_end(match_dur=None):
     if fragroute_capture is None:
         return
     try:
-        if not fragroute_capture.is_recording():
+        full = get_setting("fullMatchRecording", True)
+        recording = fragroute_capture.is_recording()
+        # FULL-MATCH: even if the recorder process died mid-match, SALVAGE whatever
+        # segments were written (don't lose the game). Highlight mode needs a live
+        # buffer, so it still bails if not recording.
+        if not recording and not (full and fragroute_capture.has_footage(_captures_dir())):
             diag("capture", True, msg="match-end: not recording; nothing to save")
             return
         if not get_setting("autoClipMatchEnd", True):
@@ -282,8 +287,9 @@ def capture_match_end(match_dur=None):
         if match_dur is not None and match_dur < 45:
             diag("capture", True, msg="match-end: %ss too short (flap/login) -- keep recording" % match_dur)
             return
-        if get_setting("fullMatchRecording", True):
-            fragroute_capture.stop()                       # finalize the segments first
+        if full:
+            if recording:
+                fragroute_capture.stop()                   # finalize the segments first
             r = fragroute_capture.save_full(_captures_dir(), "match")
             kind = "full match"
         else:
@@ -953,7 +959,7 @@ def voice_command():
     _speak(reply)
 
 
-APP_BUILD = "14.7"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "14.8"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================

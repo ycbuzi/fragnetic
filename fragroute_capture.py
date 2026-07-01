@@ -192,18 +192,34 @@ def _build_capture_cmd(ff, ring_dir, fps, bitrate, encoder, gpu, seg_seconds, ri
         cmd += ["-gpu", str(int(gpu))]          # only if explicitly pinned (default None)
     if audio_device:
         cmd += ["-c:a", "aac", "-b:a", "160k"]
-    cmd += ["-f", "segment",
-            "-segment_time", str(int(seg_seconds)),
-            "-segment_wrap", str(int(ring_segments)),
-            "-segment_format", "mpegts",
-            "-reset_timestamps", "1",
-            str(Path(ring_dir) / "seg_%03d.ts")]
+    cmd += ["-f", "segment", "-segment_time", str(int(seg_seconds))]
+    # ring_segments > 0 => rolling highlight buffer (wrap/overwrite oldest).
+    # ring_segments <= 0 => FULL-MATCH: OMIT -segment_wrap entirely so ffmpeg keeps
+    # every segment (unlimited). NOTE: '-segment_wrap 0' does NOT mean unlimited --
+    # ffmpeg wraps at index 0 and the recording never accumulates, so we must leave
+    # the option off. Use a 4-digit index so a long match never runs out of names.
+    if int(ring_segments) > 0:
+        cmd += ["-segment_wrap", str(int(ring_segments))]
+    cmd += ["-segment_format", "mpegts", "-reset_timestamps", "1",
+            str(Path(ring_dir) / ("seg_%03d.ts" if int(ring_segments) > 0 else "seg_%04d.ts"))]
     return cmd
 
 
 def is_recording():
     p = _STATE["proc"]
     return p is not None and (p.poll() is None)
+
+
+def has_footage(base_dir=None):
+    """True if the current ring has real segments worth saving -- lets us salvage a
+    full-match recording even if the ffmpeg process died mid-match."""
+    ring = _STATE.get("ring_dir")
+    if not ring:
+        return False
+    try:
+        return any(p.stat().st_size > 50000 for p in Path(ring).glob("seg_*.ts"))
+    except Exception:
+        return False
 
 
 def start(base_dir, opts=None):
