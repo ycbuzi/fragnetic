@@ -114,7 +114,10 @@ def transcribe(wav):
     # threads (this rig has plenty) keeps it snappy.
     prompt = ("FragPunk shooter. Lancers, shard cards, weapons, crosshair, aim, peek, "
               "rotate, push, queue, region, ping, clutch, headshot, entry, retake, flank.")
-    args = [w, "-m", m, "-f", wav, "-nt", "-l", "en", "-t", "8",
+    # -ng (no GPU): run on the CPU, NOT the 4070. Whisper on the game GPU stutters
+    # your FPS; this 24-core Ryzen transcribes small.en in a couple seconds with zero
+    # game-GPU impact. -t 6 leaves plenty of cores for the game.
+    args = [w, "-m", m, "-f", wav, "-nt", "-l", "en", "-ng", "-t", "6",
             "--beam-size", "5", "--prompt", prompt]
     try:
         p = subprocess.run(args, capture_output=True, text=True, timeout=90, **_NOWIN)

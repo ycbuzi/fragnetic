@@ -670,7 +670,19 @@ def _build_ai_ctx():
         ctx["search_facts"] = fragroute_learning.search_facts
     if fragroute_llm is not None:
         try:
-            fragroute_llm.set_prefer_fast(bool(game_proc_status().get("foreground")))
+            # Base the model choice on whether FragPunk is RUNNING, not "foreground".
+            # A fullscreen-exclusive game stops being "foreground" the instant you
+            # alt-tab to chat -- so the old check loaded the big 14B on the 4070 (your
+            # game GPU) and tanked FPS when you tabbed back. While the game runs at all,
+            # use the small model on the 1650S and keep the 4070 free.
+            gp = game_proc_status()
+            running = bool(gp.get("running"))
+            fragroute_llm.set_prefer_fast(running)
+            if running:
+                try:
+                    fragroute_llm.release_for_game()   # unload any 14B still on the 4070
+                except Exception:
+                    pass
         except Exception:
             pass
         ctx["llm"] = fragroute_llm.chat
@@ -1009,7 +1021,7 @@ def voice_command():
     _speak(reply)
 
 
-APP_BUILD = "15.4"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "15.5"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
