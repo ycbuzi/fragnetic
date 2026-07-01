@@ -40,11 +40,25 @@ def find_whisper():
 
 
 def find_model():
+    """Pick the MOST capable whisper model present, for the best freeform-speech
+    accuracy: large > medium > small > base > tiny. Drop a bigger ggml-*.bin in the
+    stt folder and it's used automatically."""
     d = _base_dir()
-    if d.exists():
-        for p in sorted(d.glob("*.bin")):
-            return str(p)
-    return None
+    if not d.exists():
+        return None
+    bins = list(d.glob("*.bin"))
+    if not bins:
+        return None
+    order = ["large", "medium", "small", "base", "tiny"]
+
+    def rank(p):
+        n = p.name.lower()
+        for i, k in enumerate(order):
+            if k in n:
+                return i
+        return len(order)
+    bins.sort(key=rank)
+    return str(bins[0])
 
 
 def available():
@@ -95,7 +109,13 @@ def transcribe(wav):
     w, m = find_whisper(), find_model()
     if not w or not m or not wav or not os.path.exists(wav):
         return None
-    args = [w, "-m", m, "-f", wav, "-nt", "-l", "en", "-t", "4"]
+    # A game-vocabulary initial prompt biases whisper toward FragPunk/shooter terms
+    # so freeform, casual, in-game speech transcribes far more accurately. More
+    # threads (this rig has plenty) keeps it snappy.
+    prompt = ("FragPunk shooter. Lancers, shard cards, weapons, crosshair, aim, peek, "
+              "rotate, push, queue, region, ping, clutch, headshot, entry, retake, flank.")
+    args = [w, "-m", m, "-f", wav, "-nt", "-l", "en", "-t", "8",
+            "--beam-size", "5", "--prompt", prompt]
     try:
         p = subprocess.run(args, capture_output=True, text=True, timeout=90, **_NOWIN)
         text = (p.stdout or "").strip()
