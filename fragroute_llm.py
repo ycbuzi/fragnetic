@@ -60,15 +60,24 @@ def find_models():
     """{'smart': big-model path, 'fast': small in-game path} -- by size hint in the
     filename. SMART = a big model (Apache-2.0 Qwen2.5-14B). FAST = a small model
     for in-game use on the 1650 SUPER (Apache-2.0 Qwen2.5-1.5B, or a 3B/2B)."""
-    smart = fast = None
+    smart = None
+    fasts = []
     for p in _text_ggufs():
         n = p.name.lower()
-        if smart is None and any(s in n for s in ("14b", "13b", "12b", "9b", "8b", "7b")):
-            smart = str(p)
-        # small/fast hint: 1.5B (current pick), or any 3B/2B/1B variant
-        if fast is None and any(s in n for s in ("1.5b", "3b", "2b", "1b")):
-            fast = str(p)
-    return {"smart": smart, "fast": fast}
+        if any(s in n for s in ("14b", "13b", "12b", "9b", "8b", "7b")):
+            if smart is None:
+                smart = str(p)
+            continue                        # a big model is never the in-game model
+        # In-game (1650S) model. PREFER a MID model (much better answers, still fits
+        # 4GB) over the tiny 1.5B: Phi-3.5-mini (3.8B) / any 3B > 2B > 1.5B/1B.
+        if any(s in n for s in ("phi", "mini", "3.8b", "3b")):
+            fasts.append((0, str(p)))       # mid -- best in-game quality
+        elif any(s in n for s in ("2b",)):
+            fasts.append((1, str(p)))
+        elif any(s in n for s in ("1.5b", "1b", "0.5b")):
+            fasts.append((2, str(p)))
+    fasts.sort(key=lambda x: x[0])
+    return {"smart": smart, "fast": (fasts[0][1] if fasts else None)}
 
 
 def find_model():

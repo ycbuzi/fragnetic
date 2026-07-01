@@ -85,3 +85,10 @@ under Creative Commons Attribution 4.0 International (CC BY 4.0).
   "IP Geolocation by DB-IP" — https://db-ip.com
 The database is downloaded on demand (not bundled) via the in-app Setup tab.
 Read with the maxminddb reader (Apache-2.0).
+
+-----------------------------------------------------------------------------
+IN-GAME COACH MODEL -- Phi-3.5-mini-instruct
+-----------------------------------------------------------------------------
+The in-game (low-FPS-impact) coach uses Microsoft's Phi-3.5-mini-instruct,
+licensed under the MIT License (commercial use permitted). GGUF quant by
+bartowski. (c) Microsoft.

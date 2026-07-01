@@ -94,9 +94,11 @@ def record(seconds=5):
     wav = os.path.join(tempfile.gettempdir(), "fragroute_voice.wav")
     # a modest gain boost helps whisper hear a quiet mic without clipping speech;
     # 16kHz mono is what whisper wants.
+    # highpass kills rumble; dynaudnorm auto-boosts a quiet mic to a consistent level
+    # so whisper reliably hears you even if your input gain is low. 16kHz mono for whisper.
     args = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
             "-f", "dshow", "-i", "audio=" + mic, "-t", str(int(seconds)),
-            "-af", "volume=4", "-ar", "16000", "-ac", "1", wav]
+            "-af", "highpass=f=90,dynaudnorm=p=0.9:m=12,volume=2", "-ar", "16000", "-ac", "1", wav]
     try:
         subprocess.run(args, timeout=int(seconds) + 12, **_NOWIN)
         return wav if (os.path.exists(wav) and os.path.getsize(wav) > 0) else None

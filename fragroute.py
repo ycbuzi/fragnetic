@@ -1000,14 +1000,22 @@ def voice_command():
             winsound.Beep(freq, ms)
         except Exception:
             pass
-    _beep(950, 130)            # "speak now" cue -- talk right after this beep
+    _beep(1000, 90); _beep(1300, 110)     # rising two-tone = "listening, talk now"
+    secs = int(get_setting("voiceCmdSeconds", 5))
+    wav = None
     try:
-        text = fragroute_voice.listen(int(get_setting("voiceCmdSeconds", 5)))
+        wav = fragroute_voice.record(max(4, secs))
+        text = fragroute_voice.transcribe(wav) if wav else None
     except Exception:
         text = None
     if not text:
-        _beep(400, 200)        # low beep = didn't catch it
-        diag("ai", False, msg="voice: no transcript")
+        # CLEAR feedback so you always know it heard the key -- distinguishes a
+        # mic/record fail from a "didn't catch speech" so you're never left guessing.
+        _beep(400, 250)
+        got_audio = bool(wav and os.path.exists(wav) and os.path.getsize(wav) > 20000)
+        diag("ai", False, msg="voice: no transcript (wav=%s)" % (os.path.getsize(wav) if wav and os.path.exists(wav) else "none"))
+        _speak("I didn't catch that. Press the key, wait for the two beeps, then talk."
+               if got_audio else "I couldn't hear your mic. Check it's set as the default input.")
         return
     _beep(1200, 90)            # high beep = got it, thinking
     SCOUT_STATE.update(text="you said: " + text, ts=int(time.time() * 1000))
@@ -1021,7 +1029,7 @@ def voice_command():
     _speak(reply)
 
 
-APP_BUILD = "15.5"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "15.6"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
