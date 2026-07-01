@@ -1027,6 +1027,21 @@ def _build_ai_ctx():
     return ctx
 
 
+def _prewarm_coach_model():
+    """Warm the coach's text model BEFORE we transcribe, choosing the same model
+    _build_ai_ctx will use (fast/1650S while the game runs, smart/4070 in menu) so
+    the warm-up isn't wasted on the wrong one. Overlaps the ~15s cold load with your
+    recording+transcription so voice answers freeform instead of going silent."""
+    if fragroute_llm is None:
+        return
+    try:
+        running = bool(game_proc_status().get("running"))
+        fragroute_llm.set_prefer_fast(running)
+        fragroute_llm.prewarm_text()
+    except Exception:
+        pass
+
+
 def _voice_record(max_secs):
     """Record the mic for a turn. Prefers VAD (auto-stops the moment you finish
     talking -> a short reply comes back in ~1-2s) and falls back to a fixed window."""
@@ -1054,6 +1069,9 @@ def voice_command():
         except Exception:
             pass
     _beep(1000, 90); _beep(1300, 110)     # rising two-tone = "listening, talk now"
+    # warm the local model NOW so its ~15s cold load overlaps your recording +
+    # transcription instead of leaving you with "the model isn't loaded" silence.
+    _prewarm_coach_model()
     secs = int(get_setting("voiceCmdSeconds", 5))
     wav = None
     try:
@@ -1133,10 +1151,12 @@ def _converse_loop():
     stopped. Records the MIC (not the speaker) and waits for the coach to finish
     talking before listening again, so it never hears itself."""
     user = ((fragroute_auth.current() if fragroute_auth else {}) or {}).get("username") or "default"
+    _prewarm_coach_model()                    # warm the model before the first turn
     _speak_sync("Voice chat on. Talk to me whenever. Say stop when you're done.")
     idle = 0
     while _CONVERSE["on"]:
         try:
+            _prewarm_coach_model()            # keep it warm (no-op once loaded)
             secs = int(get_setting("voiceCmdSeconds", 6))
             wav = _voice_record(secs) if fragroute_voice else None
             if not _CONVERSE["on"]:
@@ -1183,7 +1203,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "16.1"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "16.2"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================

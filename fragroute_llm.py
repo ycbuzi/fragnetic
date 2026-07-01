@@ -186,37 +186,57 @@ def ensure_running(timeout=240):
         # already serving the right model on the right GPU?
         if _running() and _STATE.get("model") == Path(model).name and _STATE.get("device") == device:
             return True
-        # wrong model/GPU (or game state changed) -> stop the old server
-        old = _STATE.get("proc")
-        if old is not None and old.poll() is None:
-            try:
-                old.terminate()
-                old.wait(timeout=4)
-            except Exception:
+        # already STARTING the right model (e.g. a prewarm is loading it)? don't
+        # restart it -- fall through and just wait on that same server's /health.
+        # Without this, a chat() landing mid-prewarm would kill the loading server
+        # and respawn it, paying TWO cold loads (and looking like 'not loaded').
+        _old = _STATE.get("proc")
+        starting_right = (_STATE.get("starting") and _old is not None
+                          and _old.poll() is None
+                          and _STATE.get("model") == Path(model).name
+                          and _STATE.get("device") == device)
+        if not starting_right:
+            # wrong model/GPU (or game state changed) -> stop the old server
+            old = _STATE.get("proc")
+            if old is not None and old.poll() is None:
                 try:
-                    old.kill()
+                    old.terminate()
+                    old.wait(timeout=4)
+                except Exception:
+                    try:
+                        old.kill()
+                    except Exception:
+                        pass
+            # 4GB in-game GPU: the fast text model and the vision model can't BOTH be
+            # resident on the 1650S (they OOM/thrash -> the 'model isn't loaded' stall).
+            # Free vision so voice's text model loads cleanly; vision reloads on its
+            # next scout. (No-op for the smart model on the 12GB 4070.)
+            if label == "fast" and device and _VSTATE.get("proc") is not None \
+                    and _VSTATE["proc"].poll() is None:
+                try:
+                    _stop_state(_VSTATE)
                 except Exception:
                     pass
-        port = _free_port()
-        # The 1650 SUPER has only ~3.5GB free, so the fast 3B's KV cache must stay
-        # small or it OOMs at startup. Use a smaller context on that card.
-        ctx_tok = 2048 if label == "fast" else CTX_TOKENS
-        # -ngl 99 offloads all layers to GPU (Vulkan); --device pins which GPU.
-        args = [binary, "-m", model, "--host", "127.0.0.1", "--port", str(port),
-                "-c", str(ctx_tok), "-ngl", "99", "--no-warmup"]
-        if device:
-            args += ["--device", device]
-        flags = 0x08000000 if os.name == "nt" else 0          # CREATE_NO_WINDOW
-        if os.name == "nt":
-            flags |= 0x00004000                               # BELOW_NORMAL_PRIORITY
-        try:
-            proc = subprocess.Popen(args, stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.DEVNULL, creationflags=flags)
-        except Exception as e:
-            _STATE["error"] = str(e)
-            return False
-        _STATE.update(proc=proc, port=port, kind=kind, model=Path(model).name,
-                      device=device, label=label, ready=False, starting=True, error=None)
+            port = _free_port()
+            # The 1650 SUPER has only ~3.5GB free, so the fast 3B's KV cache must
+            # stay small or it OOMs at startup. Use a smaller context on that card.
+            ctx_tok = 2048 if label == "fast" else CTX_TOKENS
+            # -ngl 99 offloads all layers to GPU (Vulkan); --device pins which GPU.
+            args = [binary, "-m", model, "--host", "127.0.0.1", "--port", str(port),
+                    "-c", str(ctx_tok), "-ngl", "99", "--no-warmup"]
+            if device:
+                args += ["--device", device]
+            flags = 0x08000000 if os.name == "nt" else 0          # CREATE_NO_WINDOW
+            if os.name == "nt":
+                flags |= 0x00004000                               # BELOW_NORMAL_PRIORITY
+            try:
+                proc = subprocess.Popen(args, stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL, creationflags=flags)
+            except Exception as e:
+                _STATE["error"] = str(e)
+                return False
+            _STATE.update(proc=proc, port=port, kind=kind, model=Path(model).name,
+                          device=device, label=label, ready=False, starting=True, error=None)
     # poll health outside the lock so other calls can see 'starting'
     port = _STATE["port"]
     proc = _STATE["proc"]
@@ -291,6 +311,22 @@ def prewarm_vision():
     def _go():
         try:
             ensure_vision_running()
+        except Exception:
+            pass
+    threading.Thread(target=_go, daemon=True).start()
+
+
+def prewarm_text():
+    """Start the currently-preferred TEXT model (fast 1650S in-game, smart 4070 in
+    menu) in the BACKGROUND so the first chat -- e.g. a voice question -- is instant
+    instead of a ~15s cold load that feels like 'the model isn't loaded'. No-op if a
+    text server is already up. Non-blocking; safe to call often (e.g. on every voice
+    key press, so the load overlaps your ~9s of recording + transcription)."""
+    if _running() or _STATE.get("starting"):
+        return
+    def _go():
+        try:
+            ensure_running()
         except Exception:
             pass
     threading.Thread(target=_go, daemon=True).start()
@@ -374,6 +410,15 @@ def ensure_vision_running(timeout=150):
             _VSTATE["error"] = "vision model/mmproj/server missing"
             return False
         devices = _vision_devices(_kind)
+        # free the FAST text model off the small GPU first -- they can't coexist on
+        # the 1650S's 4GB, and letting vision OOM there makes it fall back to the 4070
+        # and stutter the game. Vision takes the 1650S; text reloads on demand.
+        if _STATE.get("label") == "fast" and _STATE.get("proc") is not None \
+                and _STATE["proc"].poll() is None:
+            try:
+                _stop_state(_STATE)
+            except Exception:
+                pass
 
     flags = 0x08000000 if os.name == "nt" else 0
     if os.name == "nt":
