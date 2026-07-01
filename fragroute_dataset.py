@@ -226,9 +226,13 @@ def auto_harvest(folders=None, fps=0.5, settle_s=25, max_frames=150, bootstrap_n
             if state.get(key) == int(st.st_mtime):
                 continue                        # already imported (unchanged)
             n = extract_frames(str(p), fps=fps, max_frames=max_frames)
-            state[key] = int(st.st_mtime)
             if n:
-                new_vids += 1; new_frames += n
+                # ONLY mark processed when we actually extracted frames -- otherwise a
+                # transient failure (e.g. ffmpeg not ready) would permanently skip the
+                # recording. This is what left the match clips at 0 frames before.
+                state[key] = int(st.st_mtime)
+                new_vids += 1
+                new_frames += n
     try:
         state_f.write_text(json.dumps(state), encoding="utf-8")
     except Exception:
