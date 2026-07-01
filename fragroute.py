@@ -159,6 +159,11 @@ try:
 except Exception:
     fragroute_persona = None
 
+try:
+    import fragroute_regionlock  # switch region WITHOUT a VPN (firewall region lock)
+except Exception:
+    fragroute_regionlock = None
+
 
 def _captures_dir():
     """Base folder for the capture ring + saved clips (next to other app data)."""
@@ -1178,7 +1183,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "16.0"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "16.1"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -3403,6 +3408,48 @@ def region_server_ips(region_id):
     return [ip for ip, _ in sorted(bucket.items(),
                                    key=lambda kv: kv[1].get("lastSeen", 0),
                                    reverse=True)]
+
+
+# Curated FragPunk server ranges per region (Alibaba/GCP), seeded from live capture so
+# the region lock has something to block before the learned map fills. 8.221 is SPLIT
+# across us-east (8.221.51) and asia-east (8.221.146), so it's only ever seeded at /24
+# -- never blanket the whole 8.221/16. Learned /24s (record_server) are merged on top.
+_REGION_SEED_CIDRS = {
+    "us-east":   ["8.221.51.0/24", "47.77.129.0/24", "136.119.22.0/24", "47.246.0.0/16"],
+    "us-west":   [],
+    "eu":        ["8.211.0.0/16"],
+    "asia-se":   ["47.84.150.0/24", "8.219.0.0/16"],
+    "asia-east": ["8.221.146.0/24"],
+}
+
+
+def _ip_to_24(ip):
+    a, b, c, _d = ip.split(".")
+    return "%s.%s.%s.0/24" % (a, b, c)
+
+
+def region_block_map(target_region):
+    """Build {region_id: [cidr,...]} for every region EXCEPT `target_region`, so
+    applying it forces matchmaking onto the target. Merges the curated seed table
+    with the /24s we've LEARNED from real matches (tightens the more you play).
+    The lobby :11000 / backend :18110 / web :443 are protected by PORT in the lock
+    module, so it's safe even when a blocked region shares a prefix with the lobby."""
+    target = (target_region or "").strip()
+    regions = (load_servers().get("regions", {}) or {})
+    all_rids = set(regions.keys()) | set(_REGION_SEED_CIDRS.keys())
+    block = {}
+    for rid in all_rids:
+        if not rid or rid == target:
+            continue
+        cidrs = set(_REGION_SEED_CIDRS.get(rid, []))
+        for ip in (regions.get(rid, {}) or {}).keys():
+            try:
+                cidrs.add(_ip_to_24(ip))
+            except Exception:
+                pass
+        if cidrs:
+            block[rid] = sorted(cidrs)
+    return block
 
 
 def _region_real_ping(region_id):
@@ -7188,6 +7235,44 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"available": False, "message": "capture module unavailable"})
             return self._json(fragroute_capture.status(_captures_dir()))
 
+        if path == "/api/regionlock/status":
+            # Direct Region Lock: current state + which regions we have enough data to
+            # block + a live latency-aware suggestion (from Arizona, auto biases East).
+            if fragroute_regionlock is None:
+                return self._json({"available": False, "message": "region lock unavailable"})
+            st = fragroute_regionlock.status()
+            try:
+                regions = (load_servers().get("regions", {}) or {})
+                st["knownRegions"] = sorted(set(regions.keys()) | set(_REGION_SEED_CIDRS.keys()))
+                st["dataRegions"] = sorted(regions.keys())      # regions we've actually seen
+                cur = None
+                try:
+                    cur = (game_status().get("server") or {}).get("regionId")
+                except Exception:
+                    cur = None
+                st["currentRegion"] = cur
+            except Exception:
+                pass
+            return self._json(st)
+
+        if path == "/api/regionlock/preview":
+            # DRY-RUN: show exactly what would be blocked to force `region` -- applies
+            # nothing. `region` = the one region to KEEP open.
+            if fragroute_regionlock is None:
+                return self._json({"ok": False, "message": "region lock unavailable"})
+            _q = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+            target = (_q.get("region", [""])[0] or "").strip()
+            if not target:
+                return self._json({"ok": False, "message": "pick a region to lock to."})
+            bmap = region_block_map(target)
+            plan = fragroute_regionlock.plan(bmap)
+            return self._json({"ok": True, "target": target,
+                               "blockRegions": sorted(bmap.keys()),
+                               "cidrCount": sum(len(v) for v in bmap.values()),
+                               "rules": [{"region": p["region"], "proto": p["proto"],
+                                          "cidrs": p["cidrs"]} for p in plan],
+                               "whitelistTcpPorts": fragroute_regionlock.WHITELIST_TCP_PORTS})
+
         if path == "/api/capture/audiotest":
             # Record a short burst from the system-audio loopback and report the
             # level, so the user can confirm "my game sound IS being captured"
@@ -7805,6 +7890,29 @@ class Handler(BaseHTTPRequestHandler):
                 pass
             return self._json(out)
 
+        if path == "/api/regionlock/apply":
+            # Force a region WITHOUT a VPN by firewall-blocking the others. Requires an
+            # explicit confirm flag from the UI -- this changes the Windows firewall.
+            if fragroute_regionlock is None:
+                return self._json({"ok": False, "message": "region lock unavailable"}, 503)
+            target = ((body or {}).get("region") or "").strip()
+            if not target:
+                return self._json({"ok": False, "message": "pick a region to lock to."}, 400)
+            if not (body or {}).get("confirm"):
+                return self._json({"ok": False, "message": "confirmation required."}, 400)
+            bmap = region_block_map(target)
+            r = fragroute_regionlock.apply(bmap, target_region=target)
+            diag("regionlock", bool(r.get("ok")), msg=r.get("message", "apply"))
+            return self._json(r)
+
+        if path == "/api/regionlock/clear":
+            if fragroute_regionlock is None:
+                return self._json({"ok": False, "message": "region lock unavailable"}, 503)
+            r = fragroute_regionlock.clear()
+            diag("regionlock", True, msg="cleared (%d rules)" % r.get("removed", 0))
+            return self._json({"ok": True, "message": "Region lock off (%d rules removed)."
+                               % r.get("removed", 0), **r})
+
         if path == "/api/capture/start":
             if fragroute_capture is None:
                 return self._json({"ok": False, "message": "capture module unavailable"}, 503)
@@ -8157,6 +8265,17 @@ def main():
         fragroute_tts.TTS_DIR = str(STATE["configs_dir"].parent / "tts")   # piper + voice models
     if fragroute_persona is not None:
         fragroute_persona.BASE_DIR = str(STATE["configs_dir"].parent)      # per-user personality store
+    if fragroute_regionlock is not None:
+        fragroute_regionlock.STATE_DIR = str(STATE["configs_dir"].parent)  # region-lock rule state
+        try:
+            # never boot into a silent lock: sweep any rules a prior run/crash left
+            fragroute_regionlock.cleanup_on_start()
+            # and ALWAYS drop the firewall block when the app exits, so a closed
+            # Fragnetic never leaves you region-locked without the app running.
+            import atexit
+            atexit.register(lambda: fragroute_regionlock.clear())
+        except Exception:
+            pass
     load_settings()
 
     # diagnostics on as early as possible so startup failures are captured too

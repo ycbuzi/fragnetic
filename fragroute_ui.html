@@ -1310,6 +1310,23 @@
     </div>
   </div>
 
+  <!-- DIRECT REGION LOCK (force a region with NO VPN, via firewall) -->
+  <div class="route-panel" id="regionLockPanel">
+    <div class="rt-head">
+      <span class="sc-dot" id="rlDot" style="background:#ff5c8a;box-shadow:0 0 8px #ff5c8a"></span>
+      <span class="rt-title">DIRECT REGION LOCK</span>
+      <span class="sc-sub">force a region, no VPN</span>
+      <span class="sc-spacer"></span>
+      <select class="set-select" id="rlRegion" title="the ONE region to keep open — everything else is blocked"></select>
+      <button class="mini-btn" id="rlPreview" title="Dry-run: show exactly what would be blocked. Applies nothing.">Preview</button>
+      <button class="mini-btn" id="rlApply">Lock</button>
+      <button class="mini-btn danger" id="rlClear" title="Remove all region-lock firewall rules">Unlock</button>
+    </div>
+    <div class="sc-note">Blocks the <b>match-server IP ranges</b> of every other region in Windows Firewall, so FragPunk can only place you in the region you pick — and you connect <b>directly</b> (no VPN hop, often lower ping than a VPN to the same region). Your lobby, login and voice always stay open (whitelisted by port). Auto-removes when you close Fragnetic. <b>Improves as you play</b> — each match teaches it more server ranges.</div>
+    <div class="sc-note" id="rlStatus" style="color:var(--cyan)">—</div>
+    <div class="rt-body" id="rlBody"></div>
+  </div>
+
   <!-- IN-GAME SERVER PINGS (OCR'd from FragPunk's Server menu) -->
   <div class="scout-panel" id="srvPingPanel">
     <div class="sc-head">
@@ -4450,6 +4467,80 @@ document.getElementById('routePanel').addEventListener('click',(e)=>{
   const cfg=e.target.closest('[data-rtcfg]'); if(cfg){ rtConnectCfg(cfg.dataset.rtcfg); return; }
   const dir=e.target.closest('[data-rtdirect]'); if(dir){ doDisconnect(); return; }
 });
+
+// ====================== DIRECT REGION LOCK (no VPN) ======================
+let RL_STATUS=null;
+function rlFillRegions(){
+  const sel=document.getElementById('rlRegion'); if(!sel)return;
+  const prev=sel.value;
+  // you can lock to any KNOWN region; the ones you've matched on block most tightly
+  const known=(RL_STATUS&&RL_STATUS.knownRegions)||[];
+  const data=new Set((RL_STATUS&&RL_STATUS.dataRegions)||[]);
+  const name=id=>{ const r=(REGIONS||[]).find(x=>x.id===id); return r?r.name:id; };
+  sel.innerHTML=known.map(id=>`<option value="${id}">${escapeHtml(name(id))}${data.has(id)?'':' (seed data)'}</option>`).join('')
+    || '<option value="">— no regions —</option>';
+  if(prev&&known.includes(prev))sel.value=prev;
+  else if(SCOUT&&SCOUT.best&&known.includes(SCOUT.best))sel.value=SCOUT.best;
+}
+async function rlLoad(){
+  try{
+    const j=await (await fetch(API+'/api/regionlock/status')).json();
+    RL_STATUS=j; rlFillRegions();
+    const dot=document.getElementById('rlDot'), st=document.getElementById('rlStatus');
+    if(!j.available){ if(st)st.textContent='Region lock needs the elevated app on Windows.'; return; }
+    const on=j.active;
+    if(dot)dot.style.background=on?'#3affa3':'#ff5c8a';
+    if(dot)dot.style.boxShadow='0 0 8px '+(on?'#3affa3':'#ff5c8a');
+    const nm=id=>{ const r=(REGIONS||[]).find(x=>x.id===id); return r?r.name:id; };
+    if(st){
+      if(on)st.innerHTML='🔒 <b>LOCKED to '+escapeHtml(nm(j.target)||'?')+'</b> — blocking '+(j.blocked||[]).map(nm).map(escapeHtml).join(', ')+' ('+j.ruleCount+' rules). You’re connecting direct, no VPN.';
+      else st.textContent=j.currentRegion?('Currently on '+ (nm(j.currentRegion)) +' (auto). Pick a region and Preview to see what a lock would block.'):'Not locked. Pick a region and Preview to see what would be blocked.';
+    }
+  }catch(e){}
+}
+async function rlPreview(){
+  const sel=document.getElementById('rlRegion'); const region=sel&&sel.value; if(!region){toast('Pick a region first','warn');return;}
+  const body=document.getElementById('rlBody');
+  try{
+    const j=await (await fetch(API+'/api/regionlock/preview?region='+encodeURIComponent(region))).json();
+    if(!j.ok){ if(body)body.innerHTML='<div class="rt-empty">'+escapeHtml(j.message||'preview failed')+'</div>'; return; }
+    const nm=id=>{ const r=(REGIONS||[]).find(x=>x.id===id); return r?r.name:id; };
+    let html='<div class="rt-empty" style="margin-bottom:6px">Would block <b>'+j.blockRegions.map(nm).map(escapeHtml).join(', ')+'</b> ('+j.cidrCount+' IP ranges), keeping <b>'+escapeHtml(nm(region))+'</b> open. Whitelisted ports (always allowed): '+(j.whitelistTcpPorts||[]).join(', ')+'.</div>';
+    const byReg={}; (j.rules||[]).forEach(r=>{ (byReg[r.region]=byReg[r.region]||[]).push(r); });
+    html+=Object.keys(byReg).map(rid=>{
+      const cidrs=[...new Set(byReg[rid].flatMap(x=>x.cidrs))];
+      return '<div class="rt-row"><b>'+escapeHtml(nm(rid))+'</b>: <span class="mono" style="font-size:11px">'+cidrs.map(escapeHtml).join(', ')+'</span></div>';
+    }).join('');
+    html+='<div class="rt-empty" style="margin-top:6px;color:var(--muted)">Nothing applied yet — hit <b>Lock</b> to enable.</div>';
+    if(body)setHtml(body,html);
+  }catch(e){ if(body)body.innerHTML='<div class="rt-empty">preview failed</div>'; }
+}
+async function rlApply(){
+  const sel=document.getElementById('rlRegion'); const region=sel&&sel.value; if(!region){toast('Pick a region first','warn');return;}
+  const nm=id=>{ const r=(REGIONS||[]).find(x=>x.id===id); return r?r.name:id; };
+  if(!confirm('Lock matchmaking to '+nm(region)+'?\n\nThis adds Windows Firewall rules that block every OTHER region’s match servers (your lobby, login and voice stay open). It auto-removes when you close Fragnetic, or hit Unlock.\n\nQueue from the MENU after locking.'))return;
+  const btn=document.getElementById('rlApply'); if(btn){btn.disabled=true;btn.textContent='Locking…';}
+  try{
+    const j=await (await fetch(API+'/api/regionlock/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({region,confirm:true})})).json();
+    toast(j.message||(j.ok?'Locked':'failed'), j.ok?'ok':'err');
+  }catch(e){ toast('lock failed','err'); }
+  if(btn){btn.disabled=false;btn.textContent='Lock';}
+  rlLoad();
+}
+async function rlClear(){
+  const btn=document.getElementById('rlClear'); if(btn){btn.disabled=true;btn.textContent='Unlocking…';}
+  try{
+    const j=await (await fetch(API+'/api/regionlock/clear',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+    toast(j.message||'unlocked','ok');
+  }catch(e){ toast('unlock failed','err'); }
+  if(btn){btn.disabled=false;btn.textContent='Unlock';}
+  rlLoad();
+}
+(function wireRegionLock(){
+  const p=document.getElementById('rlPreview'); if(p)p.addEventListener('click',rlPreview);
+  const a=document.getElementById('rlApply'); if(a)a.addEventListener('click',rlApply);
+  const c=document.getElementById('rlClear'); if(c)c.addEventListener('click',rlClear);
+})();
 async function rtConnectCfg(name){
   try{ const j=await (await fetch(API+'/api/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({config:name})})).json();
     toast(j.ok?('Connected '+name):(j.message||'connect failed'), j.ok?'ok':'err'); refreshStatus();
@@ -4680,6 +4771,7 @@ function renderNetGraph(){
   refreshAutodetect();   // first auto-capture read
   await refreshScout();  // first scout ranking read
   rtFillRegions();       // populate the route-optimizer region dropdown
+  rlLoad();              // direct region-lock status + region picker
   renderPresets();       // saved route presets
   refreshSrvPings();     // load any stored in-game server-ping table
   refreshGameInfo();     // game version + update detection (Status tab)
