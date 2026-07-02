@@ -1280,7 +1280,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "17.9"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "18.0"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -7233,54 +7233,11 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:
             return {}
 
-    # ---- localhost-only guard (CSRF + DNS-rebinding defense) ----------------
-    # The app binds to 127.0.0.1, but that alone does NOT stop a webpage the user
-    # is visiting from POSTing to http://127.0.0.1:<port>/api/... (cross-origin
-    # "simple" requests are allowed), nor does it stop DNS rebinding (a remote
-    # domain re-pointed at 127.0.0.1). We reject any request whose Host header is
-    # not a loopback name, and any request carrying a non-loopback Origin/Referer.
-    @staticmethod
-    def _is_loopback_host(hostval):
-        if not hostval:
-            return False
-        h = hostval.strip()
-        # strip scheme (Origin/Referer come as http://host:port/...)
-        if "://" in h:
-            h = h.split("://", 1)[1]
-        h = h.split("/", 1)[0]            # drop any path
-        # strip port (handle bracketed IPv6 too: [::1]:8765)
-        if h.startswith("["):
-            h = h[1:].split("]", 1)[0]
-        elif ":" in h:
-            h = h.rsplit(":", 1)[0]
-        return h.lower() in ("127.0.0.1", "localhost", "::1")
-
-    def _guard_origin(self):
-        """Return True if the request is safe to serve. Sends 403 and returns
-        False otherwise. Blocks DNS rebinding (bad Host) and cross-site CSRF
-        (foreign Origin/Referer)."""
-        if not self._is_loopback_host(self.headers.get("Host")):
-            self._json({"error": "forbidden host"}, 403)
-            return False
-        origin = self.headers.get("Origin")
-        if origin and not self._is_loopback_host(origin):
-            self._json({"error": "cross-origin blocked"}, 403)
-            return False
-        # If there is no Origin (e.g. some same-origin GETs), fall back to Referer.
-        if not origin:
-            ref = self.headers.get("Referer")
-            if ref and not self._is_loopback_host(ref):
-                self._json({"error": "cross-origin blocked"}, 403)
-                return False
-        return True
-
     # ---- GET ----
     def do_GET(self):
         # One catch-all so a failing endpoint is RECORDED (Health tab + diag log)
         # instead of silently resetting the connection -> "app isn't working".
         try:
-            if not self._guard_origin():
-                return
             self._do_GET()
             diag("web", True)
         except (BrokenPipeError, ConnectionResetError):
@@ -7787,8 +7744,6 @@ class Handler(BaseHTTPRequestHandler):
     # ---- POST ----
     def do_POST(self):
         try:
-            if not self._guard_origin():
-                return
             self._do_POST()
             diag("web", True)
         except (BrokenPipeError, ConnectionResetError):

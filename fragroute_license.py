@@ -325,10 +325,8 @@ def _trial_start():
         blob = {"s": s, "h": hashlib.sha256(("frg%s" % s).encode()).hexdigest()[:12]}
         p.write_text(base64.urlsafe_b64encode(json.dumps(blob).encode()).decode(), encoding="utf-8")
         try:
-            import subprocess
-            subprocess.run(["attrib", "+h", str(p)],           # hide it on Windows
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                           timeout=5, check=False)
+            import os
+            os.system('attrib +h "%s" >nul 2>&1' % p)   # hide it on Windows
         except Exception:
             pass
     except Exception:
