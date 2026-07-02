@@ -2922,8 +2922,7 @@ function switchTab(name){
   if(changing)fxTabSwitch(name);   // screen-tear + glitch-in transition
   // jumping to News? make sure it's loaded (in case the first pull failed)
   if(name==='news'&&!NEWS_OK)loadNews(true);
-  if(name==='coach' && typeof aiLlmStatus==='function'){ aiLlmStatus(); if(typeof apLoad==='function')apLoad(); if(typeof aiLoadMics==='function')aiLoadMics(); if(typeof _aiConvoStart==='function')_aiConvoStart(); }
-  else if(typeof _aiConvoStop==='function'){ _aiConvoStop(); }
+  if(name==='coach' && typeof aiLlmStatus==='function'){ aiLlmStatus(); if(typeof apLoad==='function')apLoad(); if(typeof aiLoadMics==='function')aiLoadMics(); }
   if(name==='footage' && typeof aifRefresh==='function'){ aifRefresh(); aifLoadOpts&&aifLoadOpts(); }
   if(name==='create' && typeof igStatus==='function'){ igStatus(); igLoad&&igLoad(); }
   if(name==='vision' && typeof mvLoad==='function'){ mvLoad(); fetch(API+'/api/ai/vision/warm').catch(()=>{}); }  // pre-load the model so Recognize is fast
@@ -4762,40 +4761,26 @@ function renderNetGraph(){
   setHtml(wrap,h);
 }
 
-// CRASH SAFETY: report any client-side JS error to the backend diag log, and make
-// the boot RESILIENT -- one throwing step can no longer halt the whole init chain
-// (which is what showed an empty app shell with no data / no login).
-function _reportErr(where, e){
-  try{
-    const m=(e&&(e.stack||e.message))||String(e);
-    fetch(API+'/api/clienterror',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({where:String(where).slice(0,140), error:String(m).slice(0,700)})});
-  }catch(_){}
-}
-window.addEventListener('error', ev=>_reportErr('onerror '+((ev.filename||'').split('/').pop())+':'+(ev.lineno||0), ev.error||ev.message));
-window.addEventListener('unhandledrejection', ev=>_reportErr('unhandledrejection', (ev.reason&&(ev.reason.stack||ev.reason.message))||ev.reason));
-async function _step(name, fn){ try{ return await fn(); }catch(e){ _reportErr('init:'+name, e); } }
-
 (async function init(){
-  await _step('updateClock', ()=>updateClock());
-  await _step('loadRegions', ()=>loadRegions());
-  await _step('loadLog', ()=>loadLog());
-  await _step('loadSettings', ()=>loadSettings());   // reconcile cached settings w/ backend
-  await _step('applySettings', ()=>applySettings()); // theme / compact / lite / maxPing / clock
-  await _step('buildCards', ()=>buildCards());
-  await _step('refreshStatus', ()=>refreshStatus());
-  await _step('buildSettingsPanel', ()=>buildSettingsPanel());
-  await _step('setupPingAutoRefresh', ()=>setupPingAutoRefresh());
-  await _step('setupNewsAutoRefresh', ()=>setupNewsAutoRefresh());
-  await _step('updateLive', ()=>{updateLive();renderLog();});
-  await _step('refreshGame', ()=>refreshGame());
-  await _step('refreshAutodetect', ()=>refreshAutodetect());
-  await _step('refreshScout', ()=>refreshScout());
-  await _step('rtFillRegions', ()=>rtFillRegions());
-  await _step('rlLoad', ()=>rlLoad());
-  await _step('renderPresets', ()=>renderPresets());
-  await _step('refreshSrvPings', ()=>refreshSrvPings());
-  await _step('refreshGameInfo', ()=>refreshGameInfo());
+  updateClock();
+  await loadRegions();
+  await loadLog();
+  await loadSettings();      // reconcile cached settings with the backend
+  applySettings();           // theme / compact / lite / maxPing / clock
+  buildCards();
+  await refreshStatus();
+  buildSettingsPanel();      // META (dry-run) + REGIONS now available for the drawer
+  setupPingAutoRefresh();
+  setupNewsAutoRefresh();
+  updateLive();renderLog();
+  refreshGame();   // first live-game read
+  refreshAutodetect();   // first auto-capture read
+  await refreshScout();  // first scout ranking read
+  rtFillRegions();       // populate the route-optimizer region dropdown
+  rlLoad();              // direct region-lock status + region picker
+  renderPresets();       // saved route presets
+  refreshSrvPings();     // load any stored in-game server-ping table
+  refreshGameInfo();     // game version + update detection (Status tab)
   // pull initial latency (backend warmed it on startup)
   try{const res=await fetch(API+'/api/latency');const j=await res.json();const pc=j.latency||{},rb=j.regionBest||{};REGIONS.forEach(r=>{r.latencyMs=rb[r.id]??null;if(r.servers)r.servers.forEach(s=>{s.latencyMs=pc[s.name]??null;});});updateLive();}catch(e){}
 
@@ -4860,39 +4845,16 @@ function _aiEsc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').rep
 function _aiFmt(s){ // minimal markdown: **bold** and - bullets, newlines via CSS
   return _aiEsc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>');
 }
-function _aiAppend(role,text,speak){
-  if(speak===undefined) speak=true;
+function _aiAppend(role,text){
   const box=document.getElementById('aiChat'); if(!box)return;
   const empty=box.querySelector('.ai-empty'); if(empty)empty.remove();
   const d=document.createElement('div');
   d.className='ai-msg '+(role==='user'?'user':'bot');
   d.innerHTML=role==='user'?_aiEsc(text):_aiFmt(text);
   box.appendChild(d); box.scrollTop=box.scrollHeight;
-  if(speak && role==='bot' && text && text!=='…') _aiSpeak(text);
+  if(role==='bot' && text && text!=='…') _aiSpeak(text);
   return d;
 }
-// UNIFIED CONVERSATION: pull SPOKEN turns from the shared transcript so voice shows
-// up in the chat log too (typed turns are already rendered by the send handler).
-// The backend already speaks voice replies, so we append them without re-speaking.
-let _convoLastTs = 0;
-async function _aiConvoPoll(){
-  try{
-    const j=await (await fetch(API+'/api/ai/convo?since='+_convoLastTs)).json();
-    (j.turns||[]).forEach(t=>{
-      _convoLastTs=Math.max(_convoLastTs, t.ts||0);
-      if(t.via!=='voice') return;                 // typed already shown locally
-      if(t.role==='user') _aiAppend('user','🎤 '+t.content, false);
-      else _aiAppend('bot', t.content, false);     // already spoken by backend
-    });
-  }catch(e){}
-}
-let _convoTimer=null;
-function _aiConvoStart(){
-  _convoLastTs = Date.now();          // only NEW spoken turns from here on
-  if(_convoTimer) clearInterval(_convoTimer);
-  _convoTimer=setInterval(_aiConvoPoll, 2500);
-}
-function _aiConvoStop(){ if(_convoTimer){ clearInterval(_convoTimer); _convoTimer=null; } }
 // Voice output: read the coach's answers aloud (WebView2's built-in speech, offline).
 let _aiVoice = (function(){ try{ return localStorage.getItem('aiVoice')==='1'; }catch(e){ return false; } })();
 function _aiSpeak(text){
@@ -5583,27 +5545,6 @@ async function aifSaveOpt(key,val){
 })();
 </script>
 <!-- ===== Login gate (covers the app until signed in) ===== -->
-<div id="disclaimerGate" class="auth-gate" style="display:none">
-  <div class="auth-card">
-    <div class="auth-brand">FRAG<span>NETIC</span></div>
-    <div class="auth-sub">Before you continue</div>
-    <div class="auth-foot" style="text-align:left;line-height:1.5">
-      Fragnetic is an <b>independent, unofficial</b> companion app for FragPunk —
-      not made by, affiliated with, or endorsed by NetEase. Third-party software
-      use is governed by FragPunk's own Terms of Service. Fragnetic avoids
-      touching the game's process memory or automating input, but no
-      third-party tool can guarantee immunity from any game's enforcement
-      systems. Use is at your own risk.
-    </div>
-    <label class="auth-foot" style="display:flex;gap:8px;align-items:center;margin-top:12px;cursor:pointer">
-      <input type="checkbox" id="disclaimerCheck" style="width:16px;height:16px">
-      I understand and agree to the <a href="#" id="disclaimerEula" style="margin:0 4px">EULA</a> and
-      <a href="#" id="disclaimerPrivacy" style="margin-left:4px">Privacy Policy</a>
-    </label>
-    <button id="disclaimerContinue" class="auth-btn" style="margin-top:14px" disabled>Continue</button>
-  </div>
-</div>
-
 <div id="authGate" class="auth-gate" style="display:none">
   <div class="auth-card">
     <div class="auth-brand">FRAG<span>NETIC</span></div>
@@ -5653,31 +5594,7 @@ async function aifSaveOpt(key,val){
 // ===================== Accounts + entitlements =====================
 let AUTH_MODE = 'login', ENT = null, _RECOVERY_NEXT = 'enter';
 function _hideGate(){ _g('authGate').style.display='none'; document.body.classList.remove('auth-locked'); }
-function _showGate(){
-  // One-time disclaimer (unofficial tool + ToS risk) before the account gate,
-  // per user's request to be sale-ready. Shown once per install (localStorage),
-  // not nagged on every launch.
-  try{
-    if(localStorage.getItem('disclaimerAccepted')!=='1'){
-      const dg=_g('disclaimerGate');
-      if(dg){ dg.style.display='flex'; document.body.classList.add('auth-locked'); return; }
-    }
-  }catch(e){}
-  _g('authGate').style.display='flex'; document.body.classList.add('auth-locked');
-}
-(function wireDisclaimer(){
-  const chk=_g('disclaimerCheck'), btn=_g('disclaimerContinue'), dg=_g('disclaimerGate');
-  if(!chk||!btn||!dg) return;
-  chk.addEventListener('change',()=>{ btn.disabled=!chk.checked; });
-  btn.addEventListener('click',()=>{
-    try{ localStorage.setItem('disclaimerAccepted','1'); }catch(e){}
-    dg.style.display='none';
-    _g('authGate').style.display='flex'; document.body.classList.add('auth-locked');
-  });
-  const openDoc=(name)=>{ try{ fetch(API+'/api/docs/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})}); }catch(e){} };
-  const eu=_g('disclaimerEula'); if(eu)eu.addEventListener('click',(e)=>{ e.preventDefault(); openDoc('EULA.md'); });
-  const pr=_g('disclaimerPrivacy'); if(pr)pr.addEventListener('click',(e)=>{ e.preventDefault(); openDoc('PRIVACY.md'); });
-})();
+function _showGate(){ _g('authGate').style.display='flex'; document.body.classList.add('auth-locked'); }
 const _g = (id) => document.getElementById(id);
 const _v = (id) => (_g(id).value || '').trim();
 async function _postJ(path, body){

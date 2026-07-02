@@ -40,7 +40,6 @@ def main():
     # 2) the login + disclaimer path must exist, or you boot into a dead/locked screen
     required = [
         'id="authGate"', 'id="authForm"', 'id="authSubmit"', 'id="authPass"',
-        'id="disclaimerGate"', 'id="disclaimerContinue"', 'id="disclaimerCheck"',
         "function _showGate", "function setAuthMode",
     ]
     for r in required:
