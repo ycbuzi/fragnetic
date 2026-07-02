@@ -63,6 +63,7 @@ dataset/
 # --- accounts + license state (per-machine; not source) ---
 fragroute_accounts.json
 fragroute_license.json
+fragroute_throttle.json
 .fragroute_trial
 
 # --- editor / OS noise ---
