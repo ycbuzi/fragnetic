@@ -1212,7 +1212,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "16.5"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "16.6"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -1418,6 +1418,11 @@ def setup_status():
         add("geoip", "Server locator (GeoIP DB)", False)
     if fragroute_voice is not None:
         try:
+            # self-heal the ffmpeg path (same as the video check) so a stale/unset
+            # FFMPEG never shows a false "whisper missing" when whisper is installed.
+            _ff = fragroute_capture.find_ffmpeg() if fragroute_capture else None
+            if _ff and not getattr(fragroute_voice, "FFMPEG", None):
+                fragroute_voice.FFMPEG = _ff
             add("voice", "Voice commands (whisper)", fragroute_voice.available())
         except Exception:
             add("voice", "Voice commands", False)

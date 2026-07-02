@@ -74,7 +74,13 @@ def find_model():
 
 
 def available():
-    return bool(find_whisper() and find_model() and FFMPEG)
+    # Whisper (the STT binary + a model) is the real requirement. Audio capture can
+    # come from pyaudio VAD (no ffmpeg needed) OR ffmpeg -- so don't report voice as
+    # 'missing' just because the ffmpeg path wasn't wired. This was showing a false
+    # "voice commands / whisper missing" in Setup even with whisper fully installed.
+    if not (find_whisper() and find_model()):
+        return False
+    return bool(FFMPEG or vad_available())
 
 
 def detect_mic(refresh=False):
