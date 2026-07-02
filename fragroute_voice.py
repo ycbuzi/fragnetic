@@ -248,6 +248,34 @@ def _resolve_input_index(p, mic_name):
         return None
 
 
+def _open_input(p, idx, frames_per_buffer=1024):
+    """Open an input device, trying its NATIVE rate/channels first so we don't hit
+    paInvalidSampleRate (error -9997) forcing 16k on a 44.1k-only mic like a Yeti.
+    Returns (stream, rate, channels) or (None, 0, 0)."""
+    try:
+        d = p.get_device_info_by_index(idx) if idx is not None else {}
+    except Exception:
+        d = {}
+    native_sr = int(d.get("defaultSampleRate") or 44100) or 44100
+    native_ch = min(2, int(d.get("maxInputChannels") or 1)) or 1
+    # native first, then common safe combos
+    attempts = [(native_sr, native_ch), (44100, 1), (48000, 1), (16000, 1),
+                (44100, 2), (48000, 2)]
+    seen = set()
+    for sr, ch in attempts:
+        key = (sr, ch)
+        if key in seen:
+            continue
+        seen.add(key)
+        try:
+            s = p.open(format=_pa.paInt16, channels=ch, rate=sr, input=True,
+                       input_device_index=idx, frames_per_buffer=frames_per_buffer)
+            return s, sr, ch
+        except Exception:
+            continue
+    return None, 0, 0
+
+
 def mic_probe(mic_name=None, seconds=1.4):
     """Record a short burst from the chosen mic and return the peak level, so the UI
     can tell the user 'this mic hears you' (or is silent -> pick another)."""
@@ -262,11 +290,9 @@ def mic_probe(mic_name=None, seconds=1.4):
             actual = p.get_device_info_by_index(idx).get("name") if idx is not None else "default"
         except Exception:
             actual = "default"
-        try:
-            stream = p.open(format=_pa.paInt16, channels=1, rate=16000, input=True,
-                            input_device_index=idx, frames_per_buffer=1024)
-        except Exception as e:
-            return {"ok": False, "message": "couldn't open that mic: %s" % str(e)[:80], "level": 0.0}
+        stream, sr, ch = _open_input(p, idx)
+        if stream is None:
+            return {"ok": False, "message": "couldn't open that mic (unsupported format)", "level": 0.0}
         peak = 0.0
         t0 = time.time()
         while time.time() - t0 < seconds:
@@ -315,18 +341,17 @@ def record_vad(max_seconds=12, start_timeout=5.0, silence_hang=0.8, min_speech=0
     record() when pyaudio isn't available."""
     if _pa is None:
         return record(int(max_seconds))
-    rate = 16000
-    chunk = 512                       # 32ms frames at 16kHz -> responsive VAD
+    chunk = 1024
     raw_path = os.path.join(tempfile.gettempdir(), "fragroute_voice_raw.wav")
     p = _pa.PyAudio()
     stream = None
     try:
         idx = _resolve_input_index(p, PREFERRED_MIC)   # user-selected mic (or default)
-        try:
-            stream = p.open(format=_pa.paInt16, channels=1, rate=rate, input=True,
-                            input_device_index=idx, frames_per_buffer=chunk)
-        except Exception:
-            return record(int(max_seconds))       # device won't open at 16k mono -> ffmpeg path
+        # open at the device's NATIVE rate/channels (avoids paInvalidSampleRate -9997
+        # on a 44.1k-only mic); ffmpeg down-mixes to 16k mono for whisper on save.
+        stream, rate, ch = _open_input(p, idx, frames_per_buffer=chunk)
+        if stream is None:
+            return record(int(max_seconds))       # can't open -> proven ffmpeg path
         # 1) calibrate the noise floor from the first ~250ms
         base = []
         for _ in range(max(1, int(0.25 * rate / chunk))):
@@ -370,7 +395,7 @@ def record_vad(max_seconds=12, start_timeout=5.0, silence_hang=0.8, min_speech=0
             return None                            # nothing meaningful captured
         try:
             with wave.open(raw_path, "wb") as w:
-                w.setnchannels(1)
+                w.setnchannels(ch)
                 w.setsampwidth(2)
                 w.setframerate(rate)
                 w.writeframes(b"".join(frames))

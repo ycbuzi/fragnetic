@@ -1228,7 +1228,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "16.7"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "16.8"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
