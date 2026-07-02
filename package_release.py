@@ -4,7 +4,7 @@ Ships everything SMALL the app needs to run -- the exe, the LGPL ffmpeg, WireGua
 the runtime binaries (llama.cpp / sd.cpp / whisper.cpp), the CLIP onnx (no public
 URL), neutral data + notices. EXCLUDES the ~20GB AI MODELS (the buyer downloads
 those from the in-app Setup tab) and the developer's PERSONAL data (logs, rank,
-VPN configs, skins). Result: release/FRAGROUTE/ ready to zip + sell.
+VPN configs, skins). Result: release/Fragnetic/ ready to zip + sell.
 
 Run:  py -3 package_release.py
 """
@@ -121,7 +121,7 @@ def main():
     # report
     n = sum(1 for _ in OUT.rglob("*") if _.is_file())
     print("DONE: %d files, %.0f MB (models NOT included -- via in-app Setup)" % (n, total / 1048576))
-    print("Zip release/FRAGROUTE/ and ship it; buyer downloads models on first run.")
+    print("Zip release/Fragnetic/ and ship it; buyer downloads models on first run.")
 
 
 if __name__ == "__main__":
