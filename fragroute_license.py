@@ -25,7 +25,7 @@ import uuid
 import hashlib
 from pathlib import Path
 
-APP_LICENSE_BUILD = "lic-1"
+APP_LICENSE_BUILD = "lic-2"
 
 # ---- verify-only public key (safe to ship; cannot sign with it) -------------
 _PUBKEY_B64 = "kDUD32/uTxedly/hvXB6tIQLrla3bo/HTznhhO9Glqs="
@@ -54,6 +54,20 @@ _LOCK = threading.Lock()
 _ACCOUNT_TIER = {"tier": None, "name": None}   # set by fragroute_auth on cloud login
 _ONLINE_CACHE = {}          # license_id -> {"ok":bool, "revoked":bool, "ts":float}
 _ONLINE_TTL = 6 * 3600
+
+# --- Lemon Squeezy built-in license keys (no self-hosted server needed) -------
+# LS generates + emails a key on every purchase; the app activates/validates it
+# against LS's public License API using ONLY the key itself (no store secret ships
+# in the app). We cache the result so it works OFFLINE after the first activation,
+# and re-validate in the background so a cancelled subscription eventually drops to
+# free. Both these LS keys AND the owner's Ed25519 (FRG1) keys work side by side.
+LS_API = "https://api.lemonsqueezy.com/v1/licenses"
+# LS variant id -> tier. Both Fragnetic Pro variants (monthly 1190540 / annual
+# 1861621) grant Pro. Any sold key we can't map still falls back to LS_DEFAULT_TIER.
+LS_VARIANT_TIERS = {"1190540": "pro", "1861621": "pro"}
+LS_DEFAULT_TIER = "pro"
+LS_REVALIDATE_TTL = 3 * 86400      # re-check a key online ~every 3 days (best effort)
+_LS_REVAL = {"on": False}
 
 
 # ---------------------------------------------------------------- helpers ----
@@ -119,13 +133,136 @@ def verify_key(key):
         return {"valid": False, "error": "bad key: %s" % str(e)[:60]}
 
 
+def _looks_like_ls_key(key):
+    """A Lemon Squeezy key is a UUID-style string (hex groups joined by hyphens),
+    not our dotted FRG1.<payload>.<sig> format. Used to route to the right path."""
+    k = (key or "").strip()
+    return bool(k) and not k.startswith(KEY_PREFIX) and "." not in k and k.count("-") >= 3
+
+
+def _ls_call(action, key, instance_name=None, instance_id=None, timeout=10):
+    """Call the LS License API (activate|validate|deactivate). Key-only auth --
+    no store secret. Returns the parsed JSON dict (or raises on network error)."""
+    import urllib.request
+    import urllib.parse
+    data = {"license_key": key}
+    if instance_name:
+        data["instance_name"] = instance_name
+    if instance_id:
+        data["instance_id"] = instance_id
+    body = urllib.parse.urlencode(data).encode("utf-8")
+    req = urllib.request.Request(LS_API + "/" + action, data=body,
+                                 headers={"Accept": "application/json",
+                                          "Content-Type": "application/x-www-form-urlencoded"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode("utf-8", "ignore"))
+    except urllib.error.HTTPError as e:      # LS returns 400/404 with a JSON error body
+        try:
+            return json.loads(e.read().decode("utf-8", "ignore"))
+        except Exception:
+            return {"error": "HTTP %s" % e.code}
+
+
+def _tier_for_variant(variant_id):
+    return LS_VARIANT_TIERS.get(str(variant_id or ""), LS_DEFAULT_TIER)
+
+
+def _set_ls_license(key):
+    """Activate a Lemon Squeezy key and cache it locally. Reuses the existing
+    activation if this exact key was already activated on this machine (so
+    re-pasting doesn't burn one of the buyer's limited activations)."""
+    key = key.strip()
+    prev = _saved_record()
+    if prev and prev.get("type") == "ls" and prev.get("key") == key and prev.get("instance"):
+        try:
+            res = _ls_call("validate", key, instance_id=prev["instance"])
+            if res.get("valid"):
+                prev["validated"] = time.time()
+                prev["revoked"] = False
+                _lic_path().write_text(json.dumps(prev), encoding="utf-8")
+                return {"valid": True, "tier": prev.get("tier", LS_DEFAULT_TIER),
+                        "name": prev.get("name", ""), "ls": True}
+        except Exception:
+            pass                             # fall through to a fresh activation
+    try:
+        res = _ls_call("activate", key, instance_name=machine_id())
+    except Exception as e:
+        return {"valid": False, "error": "couldn't reach the license server "
+                "(check your internet and try again): %s" % str(e)[:50]}
+    if not res.get("activated"):
+        err = res.get("error") or "this key wasn't accepted"
+        return {"valid": False, "error": err}
+    meta = res.get("meta") or {}
+    lk = res.get("license_key") or {}
+    inst = res.get("instance") or {}
+    tier = _tier_for_variant(meta.get("variant_id"))
+    rec = {"type": "ls", "key": key, "tier": tier,
+           "variant": str(meta.get("variant_id") or ""),
+           "instance": inst.get("id"), "name": meta.get("customer_name") or "",
+           "email": meta.get("customer_email") or "", "status": lk.get("status"),
+           "validated": time.time(), "revoked": False}
+    try:
+        _lic_path().write_text(json.dumps(rec), encoding="utf-8")
+    except Exception as e:
+        return {"valid": False, "error": "could not save: %s" % e}
+    left = (lk.get("activation_limit") or 0) - (lk.get("activation_usage") or 0)
+    return {"valid": True, "tier": tier, "name": rec["name"], "ls": True,
+            "activationsLeft": max(0, left)}
+
+
+def _ls_maybe_revalidate(rec):
+    """Kick a BACKGROUND re-validation if the cached LS record is stale, so a
+    cancelled/expired subscription eventually drops to free without ever blocking
+    the app or breaking offline use."""
+    if time.time() - rec.get("validated", 0) < LS_REVALIDATE_TTL:
+        return
+    if _LS_REVAL["on"]:
+        return
+    _LS_REVAL["on"] = True
+
+    def _go():
+        try:
+            res = _ls_call("validate", rec.get("key"), instance_id=rec.get("instance"))
+            lk = res.get("license_key") or {}
+            status = lk.get("status")
+            rec["validated"] = time.time()
+            rec["status"] = status
+            rec["revoked"] = (not res.get("valid")) or status in ("disabled", "expired", "inactive")
+            if not rec["revoked"]:
+                meta = res.get("meta") or {}
+                if meta.get("variant_id"):
+                    rec["tier"] = _tier_for_variant(meta.get("variant_id"))
+            _lic_path().write_text(json.dumps(rec), encoding="utf-8")
+        except Exception:
+            pass                             # offline / transient -> keep the cache
+        finally:
+            _LS_REVAL["on"] = False
+    threading.Thread(target=_go, daemon=True).start()
+
+
+def _ls_entitlement(rec):
+    """verify_key()-shaped result from a cached LS record (+ background re-check)."""
+    _ls_maybe_revalidate(rec)
+    if rec.get("revoked"):
+        return {"valid": True, "tier": "free", "name": rec.get("name", ""),
+                "expired": True, "ls": True, "id": rec.get("instance", "")}
+    return {"valid": True, "tier": rec.get("tier", LS_DEFAULT_TIER),
+            "name": rec.get("name", ""), "expired": False, "ls": True,
+            "id": rec.get("instance", "")}
+
+
 def set_license(key):
-    """Validate + store a license key. Returns the verify_key() result."""
+    """Validate + store a license key. Routes Lemon Squeezy keys to online
+    activation and the owner's FRG1 keys to offline signature verification."""
+    key = (key or "").strip()
+    if _looks_like_ls_key(key):
+        return _set_ls_license(key)
     info = verify_key(key)
     if not info.get("valid"):
         return info
     try:
-        _lic_path().write_text(json.dumps({"key": key.strip()}), encoding="utf-8")
+        _lic_path().write_text(json.dumps({"key": key}), encoding="utf-8")
     except Exception as e:
         return {"valid": False, "error": "could not save: %s" % e}
     _ONLINE_CACHE.pop(info.get("id"), None)
@@ -133,6 +270,14 @@ def set_license(key):
 
 
 def clear_license():
+    # if it's an LS key, deactivate this machine's instance so the buyer gets that
+    # activation back (best effort -- never blocks removal).
+    rec = _saved_record()
+    if rec and rec.get("type") == "ls" and rec.get("instance"):
+        try:
+            _ls_call("deactivate", rec.get("key"), instance_id=rec.get("instance"), timeout=6)
+        except Exception:
+            pass
     try:
         _lic_path().unlink()
     except Exception:
@@ -140,12 +285,21 @@ def clear_license():
     return {"ok": True}
 
 
-def _saved_license():
+def _saved_record():
     try:
-        key = json.loads(_lic_path().read_text(encoding="utf-8")).get("key")
-        return verify_key(key) if key else None
+        return json.loads(_lic_path().read_text(encoding="utf-8"))
     except Exception:
         return None
+
+
+def _saved_license():
+    rec = _saved_record()
+    if not rec:
+        return None
+    if rec.get("type") == "ls":              # Lemon Squeezy key -> cached entitlement
+        return _ls_entitlement(rec)
+    key = rec.get("key")                     # owner's FRG1 Ed25519 key -> offline verify
+    return verify_key(key) if key else None
 
 
 # ------------------------------------------------------------------- trial ----
