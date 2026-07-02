@@ -1051,17 +1051,22 @@ def _voice_record(max_secs):
         fragroute_voice.PREFERRED_MIC = get_setting("voiceMic", None) or None
     except Exception:
         pass
-    try:
-        if getattr(fragroute_voice, "vad_available", lambda: False)():
-            wav = fragroute_voice.record_vad(max_seconds=max(6, int(max_secs)))
-            if wav:
-                return wav
-            # VAD heard nothing (quiet mic / odd default device) -> fall back to a
-            # fixed-window capture, which records regardless of level and gain-boosts
-            # for whisper. Belt-and-suspenders so voice never silently no-ops.
-    except Exception:
-        pass
+    # PROVEN PATH FIRST: the fixed-window ffmpeg recorder (records regardless of
+    # level, then gain-boosts for whisper) is what worked reliably before VAD. VAD
+    # opens the mic via pyaudio, which was colliding with the recorder / rapid key
+    # presses and returning empty -- so it's now OPT-IN via the 'voiceVAD' setting.
+    if bool(get_setting("voiceVAD", False)):
+        try:
+            if getattr(fragroute_voice, "vad_available", lambda: False)():
+                wav = fragroute_voice.record_vad(max_seconds=max(6, int(max_secs)))
+                if wav:
+                    return wav                # else fall through to the fixed window
+        except Exception:
+            pass
     return fragroute_voice.record(max(4, int(max_secs)))
+
+
+_VOICE_BUSY = {"on": False}
 
 
 def voice_command():
@@ -1070,7 +1075,18 @@ def voice_command():
     if fragroute_voice is None or fragroute_ai is None:
         _speak("Voice commands aren't set up.")
         return
+    # re-entrancy guard: a held/repeated hotkey fired voice_command many times a
+    # second, stacking overlapping mic captures that all failed on device contention.
+    if _VOICE_BUSY["on"]:
+        return
+    _VOICE_BUSY["on"] = True
+    try:
+        _voice_command_impl()
+    finally:
+        _VOICE_BUSY["on"] = False
 
+
+def _voice_command_impl():
     def _beep(freq, ms):
         try:
             import winsound
@@ -1212,7 +1228,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "16.6"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "16.7"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
