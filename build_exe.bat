@@ -52,6 +52,17 @@ if errorlevel 1 (
   exit /b 1
 )
 
+REM --- 3b) UI SMOKE CHECK: refuse to build a broken login/UI ----------------
+REM  A broken <script> in fragroute_ui.html silently kills the whole UI (no login,
+REM  no buttons) and 'python compiles' never catches it. Abort the build loudly.
+echo Checking UI (login/disclaimer path + JS syntax)...
+%PY% check_ui.py
+if errorlevel 1 (
+  echo [X] UI smoke check FAILED - refusing to build a broken app. Fix fragroute_ui.html.
+  pause
+  exit /b 1
+)
+
 REM --- 4) Acquire + bundle WireGuard (all-in-one) -------------------------
 REM  If wireguard.exe isn't already in this folder, copy it from a system
 REM  WireGuard for Windows install so the built exe is fully self-contained.

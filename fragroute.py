@@ -1280,7 +1280,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "17.5"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "17.6"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -8024,6 +8024,17 @@ class Handler(BaseHTTPRequestHandler):
             with _LOG_LOCK:
                 save_log(clean)
             return self._json({"ok": True, "log": clean})
+
+        if path == "/api/clienterror":
+            # the UI reports JS errors here so a broken front-end is visible in the
+            # diag log instead of just showing an empty shell.
+            try:
+                b = body or {}
+                diag("clienterror", False,
+                     msg=("%s :: %s" % (b.get("where", "?"), b.get("error", "")))[:400])
+            except Exception:
+                pass
+            return self._json({"ok": True})
 
         if path == "/api/settings":
             updated = save_settings(body or {})
