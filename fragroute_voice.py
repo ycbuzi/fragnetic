@@ -174,28 +174,68 @@ def list_mics():
 
 def _resolve_input_index(p, mic_name):
     """pyaudio input-device index for a chosen mic NAME (None/'' -> system default).
-    Falls back to the default device if the name isn't found."""
+
+    Prefers the WASAPI backend of a device: Windows' raw default input is often the
+    MME endpoint, which on some mics (e.g. a Yeti) OPENS but returns silence at 16k
+    mono -> the coach 'hears nothing'. The WASAPI version of the SAME mic works. So
+    even for the default we hunt down its WASAPI twin."""
+    try:
+        wasapi_idx = p.get_host_api_info_by_type(_pa.paWASAPI).get("index")
+    except Exception:
+        wasapi_idx = None
+
+    def _ok(d):
+        return int(d.get("maxInputChannels") or 0) > 0 and not d.get("isLoopbackDevice")
+
     if not mic_name:
+        # match the default device's base name, preferring its WASAPI twin
+        try:
+            base = (p.get_default_input_device_info().get("name") or "").split(" (")[0]
+        except Exception:
+            base = ""
+        best = None
+        for i in range(p.get_device_count()):
+            try:
+                d = p.get_device_info_by_index(i)
+            except Exception:
+                continue
+            if not _ok(d):
+                continue
+            nm = d.get("name") or ""
+            if base and base in nm:
+                if wasapi_idx is not None and d.get("hostApi") == wasapi_idx:
+                    return i                       # WASAPI twin of the default -> best
+                if best is None:
+                    best = i
+        if best is not None:
+            return best
         try:
             return p.get_default_input_device_info().get("index")
         except Exception:
             return None
-    # exact, then substring (WASAPI names can carry suffixes)
-    cand = None
+
+    # explicit name: exact match, then WASAPI substring, then any substring
+    exact = wasapi_sub = any_sub = None
+    ml = mic_name.lower()
     for i in range(p.get_device_count()):
         try:
             d = p.get_device_info_by_index(i)
         except Exception:
             continue
-        if int(d.get("maxInputChannels") or 0) <= 0 or d.get("isLoopbackDevice"):
+        if not _ok(d):
             continue
         nm = (d.get("name") or "")
-        if nm == mic_name:
-            return i
-        if cand is None and mic_name.lower() in nm.lower():
-            cand = i
-    if cand is not None:
-        return cand
+        is_wasapi = (wasapi_idx is not None and d.get("hostApi") == wasapi_idx)
+        if nm == mic_name and (exact is None or is_wasapi):
+            exact = i
+        elif ml in nm.lower():
+            if is_wasapi and wasapi_sub is None:
+                wasapi_sub = i
+            elif any_sub is None:
+                any_sub = i
+    for pick in (exact, wasapi_sub, any_sub):
+        if pick is not None:
+            return pick
     try:
         return p.get_default_input_device_info().get("index")
     except Exception:

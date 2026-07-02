@@ -1053,7 +1053,12 @@ def _voice_record(max_secs):
         pass
     try:
         if getattr(fragroute_voice, "vad_available", lambda: False)():
-            return fragroute_voice.record_vad(max_seconds=max(6, int(max_secs)))
+            wav = fragroute_voice.record_vad(max_seconds=max(6, int(max_secs)))
+            if wav:
+                return wav
+            # VAD heard nothing (quiet mic / odd default device) -> fall back to a
+            # fixed-window capture, which records regardless of level and gain-boosts
+            # for whisper. Belt-and-suspenders so voice never silently no-ops.
     except Exception:
         pass
     return fragroute_voice.record(max(4, int(max_secs)))
@@ -1207,7 +1212,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "16.3"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "16.4"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
