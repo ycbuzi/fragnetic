@@ -2922,7 +2922,8 @@ function switchTab(name){
   if(changing)fxTabSwitch(name);   // screen-tear + glitch-in transition
   // jumping to News? make sure it's loaded (in case the first pull failed)
   if(name==='news'&&!NEWS_OK)loadNews(true);
-  if(name==='coach' && typeof aiLlmStatus==='function'){ aiLlmStatus(); if(typeof apLoad==='function')apLoad(); if(typeof aiLoadMics==='function')aiLoadMics(); }
+  if(name==='coach' && typeof aiLlmStatus==='function'){ aiLlmStatus(); if(typeof apLoad==='function')apLoad(); if(typeof aiLoadMics==='function')aiLoadMics(); if(typeof _aiConvoStart==='function')_aiConvoStart(); }
+  else if(typeof _aiConvoStop==='function'){ _aiConvoStop(); }
   if(name==='footage' && typeof aifRefresh==='function'){ aifRefresh(); aifLoadOpts&&aifLoadOpts(); }
   if(name==='create' && typeof igStatus==='function'){ igStatus(); igLoad&&igLoad(); }
   if(name==='vision' && typeof mvLoad==='function'){ mvLoad(); fetch(API+'/api/ai/vision/warm').catch(()=>{}); }  // pre-load the model so Recognize is fast
@@ -4845,16 +4846,40 @@ function _aiEsc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').rep
 function _aiFmt(s){ // minimal markdown: **bold** and - bullets, newlines via CSS
   return _aiEsc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>');
 }
-function _aiAppend(role,text){
+function _aiAppend(role,text,speak){
+  if(speak===undefined) speak=true;
   const box=document.getElementById('aiChat'); if(!box)return;
   const empty=box.querySelector('.ai-empty'); if(empty)empty.remove();
   const d=document.createElement('div');
   d.className='ai-msg '+(role==='user'?'user':'bot');
   d.innerHTML=role==='user'?_aiEsc(text):_aiFmt(text);
   box.appendChild(d); box.scrollTop=box.scrollHeight;
-  if(role==='bot' && text && text!=='…') _aiSpeak(text);
+  if(speak && role==='bot' && text && text!=='…') _aiSpeak(text);
   return d;
 }
+// UNIFIED CONVERSATION: pull SPOKEN turns from the shared transcript so voice shows
+// up in the chat log too (typed turns are already rendered by the send handler).
+// The backend already speaks voice replies, so we append them without re-speaking.
+// All boot-safe: definitions only; _aiConvoStart runs on the Coach tab, not at init.
+let _convoLastTs = 0;
+async function _aiConvoPoll(){
+  try{
+    const j=await (await fetch(API+'/api/ai/convo?since='+_convoLastTs)).json();
+    (j.turns||[]).forEach(t=>{
+      _convoLastTs=Math.max(_convoLastTs, t.ts||0);
+      if(t.via!=='voice') return;                 // typed already shown locally
+      if(t.role==='user') _aiAppend('user','🎤 '+t.content, false);
+      else _aiAppend('bot', t.content, false);     // already spoken by backend
+    });
+  }catch(e){}
+}
+let _convoTimer=null;
+function _aiConvoStart(){
+  _convoLastTs = Date.now();          // only NEW spoken turns from here on
+  if(_convoTimer) clearInterval(_convoTimer);
+  _convoTimer=setInterval(_aiConvoPoll, 2500);
+}
+function _aiConvoStop(){ if(_convoTimer){ clearInterval(_convoTimer); _convoTimer=null; } }
 // Voice output: read the coach's answers aloud (WebView2's built-in speech, offline).
 let _aiVoice = (function(){ try{ return localStorage.getItem('aiVoice')==='1'; }catch(e){ return false; } })();
 function _aiSpeak(text){
