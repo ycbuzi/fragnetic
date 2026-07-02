@@ -1212,7 +1212,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "16.4"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "16.5"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -2572,6 +2572,18 @@ _LAUNCH_SETTLE_S = 30
 _GAME_RUN_SINCE = {"ts": None}
 
 
+def _is_public_ip(host):
+    """True for a routable public IPv4 (rejects loopback/private/link-local), so a
+    UDP gameplay remote is a real server and not localhost/LAN chatter."""
+    try:
+        import ipaddress
+        ip = ipaddress.ip_address(host)
+        return not (ip.is_private or ip.is_loopback or ip.is_link_local
+                    or ip.is_multicast or ip.is_reserved or ip.is_unspecified)
+    except Exception:
+        return False
+
+
 def _classify_game(conns):
     """Decide menu vs match from the live connection set, and pick the match
     server. Returns (phase, match_server, lobby), each (host,port) or None.
@@ -2583,16 +2595,25 @@ def _classify_game(conns):
     home-backend from being mistaken for a match."""
     now = time.time()
     game = []
+    udp_game = []
     for host, port, proto, state in conns:
-        if proto != "TCP":
-            continue                              # UDP remotes aren't visible via netstat
-        if state and state.upper() != "ESTABLISHED":
-            continue                              # ignore CLOSE_WAIT / TIME_WAIT etc.
         if port in _WEB_PORTS:
             continue                              # never a game server
+        if proto == "UDP":
+            # the actual GAMEPLAY runs over UDP (e.g. :7786/:7798). netstat DOES
+            # list these remotes; use them as a fallback so the live host shows even
+            # when the TCP session isn't Established (or is being firewall-blocked).
+            if port not in _INFRA_PORTS and _is_public_ip(host):
+                udp_game.append((host, port))
+            continue
+        if proto != "TCP":
+            continue
+        if state and state.upper() != "ESTABLISHED":
+            continue                              # ignore CLOSE_WAIT / TIME_WAIT etc.
         game.append((host, port))
 
-    keys = {f"{h}:{p}" for h, p in game}
+    # track first-seen for BOTH tcp + udp game endpoints so age gating works for each
+    keys = {f"{h}:{p}" for h, p in (game + udp_game)}
     with _CONN_FIRST_LOCK:
         for k in list(_CONN_FIRST):
             if k not in keys:
@@ -2607,7 +2628,7 @@ def _classify_game(conns):
     def key(hp):
         return f"{hp[0]}:{hp[1]}"
 
-    if not game:
+    if not game and not udp_game:
         return "menu", None, None                 # running but no game conn yet
 
     # Infrastructure = a connection on a known infra PORT (lobby :11000, EU
@@ -2618,11 +2639,18 @@ def _classify_game(conns):
     infra_now = {hp for hp in game if hp[1] in _INFRA_PORTS}
     others = [hp for hp in game
               if hp not in infra_now and age(hp) >= _MATCH_MIN_AGE_S]
-    # pick a lobby to report (prefer a known-infra endpoint, else the oldest)
-    lobby = (max(infra_now, key=age) if infra_now else max(game, key=age))
+    # pick a lobby to report (prefer a known-infra endpoint, else the oldest TCP)
+    lobby = (max(infra_now, key=age) if infra_now
+             else (max(game, key=age) if game else None))
     if others:
-        match_srv = max(others, key=age)          # the most stable non-infra conn
+        match_srv = max(others, key=age)          # the most stable non-infra TCP conn
         return "match", match_srv, lobby
+    # FALLBACK: no TCP match server, but a persistent UDP GAMEPLAY server means you're
+    # in a match (the TCP session may be brief / blocked). Report it so the live host
+    # shows for non-VPN games too, instead of a blank "in menu".
+    udp_others = [hp for hp in udp_game if age(hp) >= _MATCH_MIN_AGE_S]
+    if udp_others:
+        return "match", max(udp_others, key=age), lobby
     return "menu", None, lobby
 
 
