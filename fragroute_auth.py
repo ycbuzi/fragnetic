@@ -34,6 +34,39 @@ MIN_PW = 8
 _LOCK = threading.Lock()
 _SESSION = {"user": None}      # in-memory current login
 
+# ---- brute-force throttle (in-memory, per username) -------------------------
+MAX_ATTEMPTS = 8               # failed tries before a lockout window kicks in
+LOCKOUT_SECS = 300            # how long the account input is frozen after that
+_ATTEMPTS = {}                 # norm(username) -> {"n": int, "until": epoch}
+_ATTEMPTS_LOCK = threading.Lock()
+
+
+def _throttle_check(username):
+    """Return remaining lockout seconds (0 if clear)."""
+    key = _norm(username)
+    with _ATTEMPTS_LOCK:
+        rec = _ATTEMPTS.get(key)
+        if not rec:
+            return 0
+        if rec.get("until", 0) > time.time():
+            return int(rec["until"] - time.time())
+        return 0
+
+
+def _throttle_fail(username):
+    key = _norm(username)
+    with _ATTEMPTS_LOCK:
+        rec = _ATTEMPTS.setdefault(key, {"n": 0, "until": 0})
+        rec["n"] += 1
+        if rec["n"] >= MAX_ATTEMPTS:
+            rec["until"] = time.time() + LOCKOUT_SECS
+            rec["n"] = 0
+
+
+def _throttle_clear(username):
+    with _ATTEMPTS_LOCK:
+        _ATTEMPTS.pop(_norm(username), None)
+
 
 def _base():
     if BASE_DIR:
@@ -166,6 +199,9 @@ def register(username, password, email="", license_key=""):
 
 
 def login(username, password):
+    wait = _throttle_check(username)
+    if wait:
+        return {"ok": False, "error": "too many attempts; try again in %ds" % wait}
     rec = _load().get("users", {}).get(_norm(username))
     if not rec:
         # maybe a cloud-only account on a fresh machine
@@ -180,9 +216,12 @@ def login(username, password):
                 d = _load(); d.setdefault("users", {})[_norm(username)] = rec; _save(d)
             _start_session(rec)
             return {"ok": True, "user": _public(rec)}
+        _throttle_fail(username)
         return {"ok": False, "error": "no such account"}
     if _hash(password, base64.b64decode(rec["salt"])) != rec.get("hash"):
+        _throttle_fail(username)
         return {"ok": False, "error": "wrong password"}
+    _throttle_clear(username)
     # refresh tier from cloud if applicable
     if rec.get("cloud") and CLOUD_ENDPOINT:
         cloud = _cloud_call("login", {"username": username, "password": password})
@@ -213,15 +252,24 @@ def change_password(old, new):
 def reset_password(username, code, new_password):
     """Reset a forgotten password using the recovery code shown at signup. The
     used code is rotated so it can't be replayed."""
+    wait = _throttle_check(username)
+    if wait:
+        return {"ok": False, "error": "too many attempts; try again in %ds" % wait}
     if len(new_password or "") < MIN_PW:
         return {"ok": False, "error": "new password must be at least %d characters" % MIN_PW}
     with _LOCK:
         d = _load()
         rec = d.get("users", {}).get(_norm(username))
         if not rec or not rec.get("recovery") or not rec.get("rsalt"):
+            _throttle_fail(username)
             return {"ok": False, "error": "no recovery code on file for that account"}
         if _hash((code or "").strip().upper(), base64.b64decode(rec["rsalt"])) != rec["recovery"]:
+            _throttle_fail(username)
             return {"ok": False, "error": "recovery code is incorrect"}
+    _throttle_clear(username)
+    with _LOCK:
+        d = _load()
+        rec = d.get("users", {}).get(_norm(username))
         salt = os.urandom(16)
         rec["salt"] = base64.b64encode(salt).decode()
         rec["hash"] = _hash(new_password, salt)
