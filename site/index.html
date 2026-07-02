@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fragnetic — Your FragPunk Companion</title>
+<meta name="description" content="Fragnetic finds your fastest FragPunk region, auto-records your matches, and puts a private local AI coach in your corner. Runs 100% on your PC — nothing uploaded.">
+<meta property="og:title" content="Fragnetic — Your FragPunk Companion">
+<meta property="og:description" content="Better regions. Better footage. A local AI coach that actually watches your game.">
+<meta property="og:type" content="website">
+<style>
+  :root{
+    --bg:#070b12; --bg2:#0d1620; --card:#101c28; --border:#1e2f40;
+    --text:#e8f0f7; --muted:#8aa0b4; --pink:#ff3d7f; --pink-glow:rgba(255,61,127,.45);
+    --cyan:#39d6ff; --good:#3affa3;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;line-height:1.6;overflow-x:hidden}
+  a{color:var(--cyan);text-decoration:none}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+  .btn{display:inline-block;padding:14px 28px;border-radius:10px;font-weight:700;font-size:16px;cursor:pointer;transition:transform .15s,box-shadow .15s;border:none}
+  .btn-primary{background:linear-gradient(135deg,var(--pink),#ff6b9d);color:#fff;box-shadow:0 4px 24px var(--pink-glow)}
+  .btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 32px var(--pink-glow)}
+  .btn-ghost{background:transparent;color:var(--text);border:1px solid var(--border)}
+  .btn-ghost:hover{border-color:var(--cyan);color:var(--cyan)}
+
+  /* header */
+  header{position:sticky;top:0;z-index:50;background:rgba(7,11,18,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--border)}
+  header .wrap{display:flex;align-items:center;justify-content:space-between;height:64px}
+  .brand{font-family:"Audiowide",Impact,sans-serif;font-size:24px;font-weight:900;letter-spacing:.02em}
+  .brand .p{color:var(--pink);text-shadow:0 0 12px var(--pink-glow)}
+  .brand .n{color:var(--cyan)}
+  nav a{margin-left:24px;color:var(--muted);font-weight:600;font-size:14px}
+  nav a:hover{color:var(--text)}
+
+  /* hero */
+  .hero{text-align:center;padding:90px 0 70px;position:relative}
+  .hero::before{content:"";position:absolute;top:-100px;left:50%;transform:translateX(-50%);width:600px;height:400px;background:radial-gradient(ellipse,var(--pink-glow),transparent 70%);opacity:.25;pointer-events:none}
+  .hero h1{font-size:clamp(38px,6vw,64px);font-weight:900;line-height:1.05;letter-spacing:-.02em;position:relative}
+  .hero .sub{font-size:clamp(17px,2.5vw,22px);color:var(--muted);margin:22px auto 0;max-width:640px;position:relative}
+  .hero .cta{margin-top:38px;display:flex;gap:14px;justify-content:center;flex-wrap:wrap;position:relative}
+  .hero .local{margin-top:20px;font-size:13px;color:var(--good);position:relative}
+
+  /* sections */
+  section{padding:64px 0}
+  .eyebrow{color:var(--cyan);text-transform:uppercase;letter-spacing:.15em;font-size:12px;font-weight:700;margin-bottom:10px}
+  h2{font-size:clamp(26px,4vw,38px);font-weight:800;letter-spacing:-.01em;margin-bottom:14px}
+  .lead{color:var(--muted);font-size:17px;max-width:620px}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;margin-top:36px}
+  .feature{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:26px}
+  .feature .ic{font-size:28px;margin-bottom:12px}
+  .feature h3{font-size:18px;font-weight:700;margin-bottom:8px}
+  .feature p{color:var(--muted);font-size:15px}
+
+  /* pricing */
+  .prices{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:22px;margin-top:40px;max-width:760px;margin-left:auto;margin-right:auto}
+  .price{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:32px;position:relative}
+  .price.pro{border-color:var(--pink);box-shadow:0 0 32px rgba(255,61,127,.15)}
+  .price .tier{font-size:14px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:700}
+  .price .amt{font-size:42px;font-weight:900;margin:8px 0}
+  .price .amt small{font-size:16px;color:var(--muted);font-weight:600}
+  .price .yr{color:var(--good);font-size:14px;margin-bottom:16px}
+  .price ul{list-style:none;margin:18px 0}
+  .price li{padding:7px 0;font-size:15px;color:var(--text);padding-left:26px;position:relative}
+  .price li::before{content:"✓";position:absolute;left:0;color:var(--good);font-weight:800}
+  .badge{position:absolute;top:-12px;right:24px;background:var(--pink);color:#fff;font-size:11px;font-weight:800;padding:4px 12px;border-radius:20px;letter-spacing:.08em}
+
+  /* faq */
+  .faq-item{border-bottom:1px solid var(--border);padding:22px 0}
+  .faq-item h4{font-size:17px;font-weight:700;margin-bottom:8px}
+  .faq-item p{color:var(--muted);font-size:15px}
+
+  footer{border-top:1px solid var(--border);padding:40px 0;text-align:center;color:var(--muted);font-size:13px}
+  .disclaimer{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:20px;margin-top:30px;font-size:13px;color:var(--muted);line-height:1.7}
+  @import url('https://fonts.googleapis.com/css2?family=Audiowide&display=swap');
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="brand"><span class="p">FRAG</span><span class="n">NETIC</span></div>
+    <nav>
+      <a href="#features">Features</a>
+      <a href="#pricing">Pricing</a>
+      <a href="#faq">FAQ</a>
+      <a href="#get" class="btn btn-ghost" style="padding:8px 18px;font-size:14px">Download</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <h1>Your FragPunk companion.<br>Better regions. Better footage.<br>A coach that actually watches.</h1>
+    <p class="sub">Fragnetic finds your fastest region, records and reviews your matches, and puts a private AI coach in your corner — all running locally on your PC.</p>
+    <div class="cta">
+      <a href="#get" class="btn btn-primary">Download Free</a>
+      <a href="#pricing" class="btn btn-ghost">See Pro features</a>
+    </div>
+    <div class="local">🔒 Runs 100% locally on your PC. No account required to try it. Nothing uploaded.</div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <div class="eyebrow">What it does</div>
+    <h2>Everything, in one app</h2>
+    <p class="lead">Replaces a separate VPN, screen recorder, and coaching subscription — purpose-built for FragPunk.</p>
+    <div class="grid">
+      <div class="feature"><div class="ic">📡</div><h3>Stop guessing your region</h3><p>Live ping across every FragPunk region, logged queue times, and a one-click way to lock onto your best connection — no VPN subscription required.</p></div>
+      <div class="feature"><div class="ic">🎙️</div><h3>A coach that's watching</h3><p>Ask anything — weapon timing, card strategy, economy calls — by typing or just talking. It remembers the conversation either way, grounded in real FragPunk data.</p></div>
+      <div class="feature"><div class="ic">🎬</div><h3>Never lose the clip</h3><p>Matches auto-record with near-zero FPS impact. An offline highlight detector finds your best moments so you're not scrubbing a 40-minute VOD.</p></div>
+      <div class="feature"><div class="ic">🔒</div><h3>Built local-first</h3><p>Your account, recordings, and AI conversations stay on your PC. No telemetry, no cloud requirement, nothing uploaded without you choosing to.</p></div>
+      <div class="feature"><div class="ic">🎯</div><h3>Net overlay reader</h3><p>Pulls FragPunk's own ping/loss numbers off-screen so you always know your real connection quality at a glance.</p></div>
+      <div class="feature"><div class="ic">🗂️</div><h3>Weapon Locker</h3><p>An auto-organized gallery of your skins, built from your own screenshots.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="pricing" style="background:var(--bg2)">
+  <div class="wrap" style="text-align:center">
+    <div class="eyebrow">Pricing</div>
+    <h2>Free forever. Pro when you want more.</h2>
+    <p class="lead" style="margin:0 auto">The free tier alone beats most paid gaming-VPN apps on region routing.</p>
+    <div class="prices">
+      <div class="price">
+        <div class="tier">Free</div>
+        <div class="amt">$0</div>
+        <div class="yr">Forever. No nag, no ads.</div>
+        <ul>
+          <li>Smart region routing</li>
+          <li>Direct region lock (no VPN)</li>
+          <li>Net overlay reader</li>
+          <li>Weapon Locker</li>
+          <li>Stats &amp; queue history</li>
+          <li>Shard card reference</li>
+        </ul>
+        <a href="#get" class="btn btn-ghost" style="width:100%;text-align:center">Download Free</a>
+      </div>
+      <div class="price pro">
+        <div class="badge">14-DAY FREE TRIAL</div>
+        <div class="tier" style="color:var(--pink)">Pro</div>
+        <div class="amt">$5.99<small>/mo</small></div>
+        <div class="yr">or $49/yr — save $23</div>
+        <ul>
+          <li>AI Coach — chat &amp; voice</li>
+          <li>Auto-recording &amp; highlights</li>
+          <li>Match video editor</li>
+          <li>Session reports</li>
+          <li>AI image generation</li>
+          <li>Everything in Free</li>
+        </ul>
+        <a href="#get" class="btn btn-primary" style="width:100%;text-align:center">Start free trial</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <div class="eyebrow">Questions</div>
+    <h2>Straight answers</h2>
+    <div style="margin-top:30px">
+      <div class="faq-item"><h4>Is this safe to use? Will I get banned?</h4><p>Fragnetic is an independent, unofficial tool — not made by or affiliated with FragPunk's developer. We built it to avoid touching the game's process memory, injecting code, or automating input — the behavior anti-cheat systems actually look for. That said, no third-party tool can promise immunity from any game's enforcement system, and use is governed by FragPunk's own Terms of Service. Full disclosure is in our EULA.</p></div>
+      <div class="faq-item"><h4>Does this give an unfair advantage (aimbot/ESP)?</h4><p>No. Fragnetic does not read enemy positions, automate aim, or reveal anything through walls in real matches. It's a connection, recording, and coaching tool — not a cheat.</p></div>
+      <div class="faq-item"><h4>What data does Fragnetic collect?</h4><p>By default, none of it leaves your PC. See our Privacy Policy — we mean it literally: there's no server on our end collecting your activity.</p></div>
+      <div class="faq-item"><h4>Do I need a powerful PC?</h4><p>The free features are lightweight. The AI coach and recording use your GPU efficiently and are designed to avoid competing with the game for frame time.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="get" style="text-align:center;background:var(--bg2)">
+  <div class="wrap">
+    <div class="eyebrow">Get started</div>
+    <h2>Download Fragnetic</h2>
+    <p class="lead" style="margin:0 auto 28px">Free to try. 14-day Pro trial included — no card required to start.</p>
+    <!-- TODO: point this at your Lemon Squeezy checkout / download link once live -->
+    <a href="#" class="btn btn-primary" style="font-size:18px;padding:16px 40px">Download for Windows</a>
+    <div class="disclaimer">
+      Fragnetic is an independent, unofficial companion app for FragPunk. It is not affiliated with,
+      sponsored by, or endorsed by NetEase. "FragPunk" is a trademark of its respective owner, referenced
+      here only to describe compatibility. Use of any third-party software with FragPunk is at your own
+      risk under FragPunk's own Terms of Service — see our <a href="EULA.html">EULA</a> and
+      <a href="PRIVACY.html">Privacy Policy</a>.
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="brand" style="font-size:18px;margin-bottom:10px"><span class="p">FRAG</span><span class="n">NETIC</span></div>
+    <p>© 2026 Fragnetic. An independent tool — not affiliated with NetEase or FragPunk.</p>
+    <p style="margin-top:8px">
+      <a href="EULA.html">Terms</a> ·
+      <a href="PRIVACY.html">Privacy</a> ·
+      <a href="REFUND.html">Refunds</a> ·
+      <a href="mailto:TODO@example.com">Support</a>
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>
