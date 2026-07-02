@@ -1051,16 +1051,18 @@ def _voice_record(max_secs):
         fragroute_voice.PREFERRED_MIC = get_setting("voiceMic", None) or None
     except Exception:
         pass
-    # PROVEN PATH FIRST: the fixed-window ffmpeg recorder (records regardless of
-    # level, then gain-boosts for whisper) is what worked reliably before VAD. VAD
-    # opens the mic via pyaudio, which was colliding with the recorder / rapid key
-    # presses and returning empty -- so it's now OPT-IN via the 'voiceVAD' setting.
-    if bool(get_setting("voiceVAD", False)):
+    # A quiet mic (e.g. a Blue Yeti with its gain knob low) reads well BELOW the VAD
+    # threshold, so VAD would never trigger on it. The fixed-window ffmpeg recorder
+    # captures regardless of level and then speechnorm boosts a quiet signal up to a
+    # usable level for whisper -- so it's the PRIMARY path. VAD is an opt-in
+    # ('voiceVAD') fallback for when you WANT auto-stop and your mic is loud enough.
+    prefer_vad = bool(get_setting("voiceVAD", False))
+    if prefer_vad:
         try:
             if getattr(fragroute_voice, "vad_available", lambda: False)():
                 wav = fragroute_voice.record_vad(max_seconds=max(6, int(max_secs)))
                 if wav:
-                    return wav                # else fall through to the fixed window
+                    return wav                # else fall through to the ffmpeg path
         except Exception:
             pass
     return fragroute_voice.record(max(4, int(max_secs)))
@@ -1228,7 +1230,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "16.9"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "17.0"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================

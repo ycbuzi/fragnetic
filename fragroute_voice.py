@@ -116,7 +116,7 @@ def record(seconds=5):
     # so whisper reliably hears you even if your input gain is low. 16kHz mono for whisper.
     args = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
             "-f", "dshow", "-i", "audio=" + mic, "-t", str(int(seconds)),
-            "-af", "highpass=f=90,dynaudnorm=g=5:f=200,volume=2", "-ar", "16000", "-ac", "1", wav]
+            "-af", "highpass=f=90,speechnorm=e=50:r=0.0001:l=1", "-ar", "16000", "-ac", "1", wav]
     try:
         subprocess.run(args, timeout=int(seconds) + 12, **_NOWIN)
         return wav if (os.path.exists(wav) and os.path.getsize(wav) > 0) else None
@@ -300,10 +300,20 @@ def mic_probe(mic_name=None, seconds=1.4):
                 peak = max(peak, _rms16_norm(stream.read(1024, exception_on_overflow=False)))
             except Exception:
                 break
+        # the app auto-boosts quiet mics (speechnorm), so even a low raw level is
+        # usable -- but a near-silent read means the signal isn't reaching the mic.
         heard = peak > 0.015
-        return {"ok": True, "level": round(peak, 4), "device": actual, "heard": heard,
-                "message": ("Heard you clearly" if heard else
-                            "Very quiet -- talk louder, or pick another mic")}
+        usable = peak > 0.004
+        if heard:
+            msg = "Heard you clearly."
+        elif usable:
+            msg = "Faint but usable -- the app will boost it. For best results turn up your mic gain."
+        else:
+            msg = ("Almost no signal. On a Blue Yeti: turn UP the gain knob on the BACK, "
+                   "make sure the top MUTE button is solid (not flashing), and set the mic "
+                   "level near 100 in Windows Sound settings.")
+        return {"ok": True, "level": round(peak, 4), "device": actual,
+                "heard": heard, "usable": usable, "message": msg}
     finally:
         try:
             if stream is not None:
@@ -417,7 +427,7 @@ def record_vad(max_seconds=12, start_timeout=5.0, silence_hang=0.8, min_speech=0
     if FFMPEG:
         try:
             subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", raw_path,
-                            "-af", "highpass=f=90,dynaudnorm=g=5:f=200,volume=2",
+                            "-af", "highpass=f=90,speechnorm=e=50:r=0.0001:l=1",
                             "-ar", "16000", "-ac", "1", out], timeout=20, **_NOWIN)
             if os.path.exists(out) and os.path.getsize(out) > 0:
                 return out
