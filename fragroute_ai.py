@@ -629,8 +629,10 @@ def _llm_answer(ctx, msg):
     if persona:
         sys_content = _LLM_SYSTEM + "\n\n" + persona
     try:
+        mt = (ctx or {}).get("max_tokens")
+        kw = {"max_tokens": int(mt)} if mt else {}
         return chat([{"role": "system", "content": sys_content},
-                     {"role": "user", "content": user}])
+                     {"role": "user", "content": user}], **kw)
     except Exception:
         return None
 

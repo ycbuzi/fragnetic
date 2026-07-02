@@ -1028,15 +1028,15 @@ def _build_ai_ctx():
 
 
 def _prewarm_coach_model():
-    """Warm the coach's text model BEFORE we transcribe, choosing the same model
-    _build_ai_ctx will use (fast/1650S while the game runs, smart/4070 in menu) so
-    the warm-up isn't wasted on the wrong one. Overlaps the ~15s cold load with your
-    recording+transcription so voice answers freeform instead of going silent."""
+    """Warm the coach's text model BEFORE we transcribe so the load overlaps your
+    recording+transcription. VOICE ALWAYS uses the FAST model (Phi on the 1650S):
+    a spoken reply wants to be quick, and the 14B 'smart' model on the 4070 takes
+    ~30s to load + generates slowly (that was the 'took forever'). The 14B stays for
+    the typed Chat tab where depth matters and latency is fine."""
     if fragroute_llm is None:
         return
     try:
-        running = bool(game_proc_status().get("running"))
-        fragroute_llm.set_prefer_fast(running)
+        fragroute_llm.set_prefer_fast(True)   # voice = fast model, always
         fragroute_llm.prewarm_text()
     except Exception:
         pass
@@ -1122,13 +1122,22 @@ def _voice_command_impl():
     _speak(_coach_respond(text, user) or "I'm not sure.")
 
 
-def _coach_respond(text, user="default", history=None):
-    """Run the coach on a message with the right model (via _build_ai_ctx, which keeps
-    AI off the 4070 while the game runs) + this player's adaptive persona. Returns the
-    reply text or None. Shared by voice command, voice-to-voice, and chat."""
+def _coach_respond(text, user="default", history=None, fast=True):
+    """Run the coach on a message + this player's adaptive persona. Returns the reply
+    text or None. Shared by voice command, voice-to-voice, and chat.
+
+    fast=True (the default, used by all VOICE paths): force the quick model and a
+    short, spoken-length answer so replies come back fast. The typed Chat tab passes
+    fast=False to keep the deeper 14B and longer answers."""
     if fragroute_ai is None:
         return None
     ctx = _build_ai_ctx()
+    if fast and fragroute_llm is not None:
+        try:
+            fragroute_llm.set_prefer_fast(True)   # override _build_ai_ctx's game-based pick
+        except Exception:
+            pass
+        ctx["max_tokens"] = 160                    # concise spoken reply -> faster
     if fragroute_persona is not None:
         try:
             fragroute_persona.observe(user, text)
@@ -1230,7 +1239,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "17.1"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "17.2"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
