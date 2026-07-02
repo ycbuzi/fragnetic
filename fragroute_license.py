@@ -25,7 +25,7 @@ import uuid
 import hashlib
 from pathlib import Path
 
-APP_LICENSE_BUILD = "lic-3"
+APP_LICENSE_BUILD = "lic-4"
 
 # ---- verify-only public key (safe to ship; cannot sign with it) -------------
 _PUBKEY_B64 = "kDUD32/uTxedly/hvXB6tIQLrla3bo/HTznhhO9Glqs="
@@ -62,9 +62,11 @@ _ONLINE_TTL = 6 * 3600
 # and re-validate in the background so a cancelled subscription eventually drops to
 # free. Both these LS keys AND the owner's Ed25519 (FRG1) keys work side by side.
 LS_API = "https://api.lemonsqueezy.com/v1/licenses"
-# LS variant id -> tier. Both Fragnetic Pro variants (monthly 1190540 / annual
-# 1861621) grant Pro. Any sold key we can't map still falls back to LS_DEFAULT_TIER.
-LS_VARIANT_TIERS = {"1190540": "pro", "1861621": "pro"}
+# LS variant id -> tier. 1863450 = "Fragnetic Pro" (confirmed from a real test-mode
+# key). Since Pro is the ONLY paid product, LS_DEFAULT_TIER already grants Pro to any
+# valid LS key -- this map is just belt-and-suspenders / future-proofing for if a
+# non-Pro variant is ever added.
+LS_VARIANT_TIERS = {"1863450": "pro"}
 LS_DEFAULT_TIER = "pro"
 LS_REVALIDATE_TTL = 3 * 86400      # re-check a key online ~every 3 days (best effort)
 _LS_REVAL = {"on": False}
