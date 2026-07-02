@@ -25,7 +25,7 @@ import uuid
 import hashlib
 from pathlib import Path
 
-APP_LICENSE_BUILD = "lic-2"
+APP_LICENSE_BUILD = "lic-3"
 
 # ---- verify-only public key (safe to ship; cannot sign with it) -------------
 _PUBKEY_B64 = "kDUD32/uTxedly/hvXB6tIQLrla3bo/HTznhhO9Glqs="
@@ -228,7 +228,10 @@ def _ls_maybe_revalidate(rec):
             status = lk.get("status")
             rec["validated"] = time.time()
             rec["status"] = status
-            rec["revoked"] = (not res.get("valid")) or status in ("disabled", "expired", "inactive")
+            # Per LS docs, the authoritative signal is `valid`. A cancelled/expired
+            # subscription -> status 'expired'; a manual kill -> 'disabled'. 'inactive'
+            # just means "valid key, no activations" and must NOT drop paid users.
+            rec["revoked"] = (not res.get("valid")) or status in ("disabled", "expired")
             if not rec["revoked"]:
                 meta = res.get("meta") or {}
                 if meta.get("variant_id"):
