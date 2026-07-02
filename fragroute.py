@@ -1033,6 +1033,13 @@ def _prewarm_coach_model():
     a spoken reply wants to be quick, and the 14B 'smart' model on the 4070 takes
     ~30s to load + generates slowly (that was the 'took forever'). The 14B stays for
     the typed Chat tab where depth matters and latency is fine."""
+    # warm the whisper SERVER too so transcription is decode-only (fast), not a
+    # model reload every turn -- key for smooth back-and-forth voice.
+    if fragroute_voice is not None:
+        try:
+            fragroute_voice.prewarm_whisper()
+        except Exception:
+            pass
     if fragroute_llm is None:
         return
     try:
@@ -1132,18 +1139,25 @@ def _coach_respond(text, user="default", history=None, fast=True):
     if fragroute_ai is None:
         return None
     ctx = _build_ai_ctx()
-    if fast and fragroute_llm is not None:
-        try:
-            fragroute_llm.set_prefer_fast(True)   # override _build_ai_ctx's game-based pick
-        except Exception:
-            pass
-        ctx["max_tokens"] = 160                    # concise spoken reply -> faster
     if fragroute_persona is not None:
         try:
             fragroute_persona.observe(user, text)
             ctx["persona"] = fragroute_persona.persona_prompt(user)
         except Exception:
             pass
+    if fast and fragroute_llm is not None:
+        try:
+            fragroute_llm.set_prefer_fast(True)   # override _build_ai_ctx's game-based pick
+        except Exception:
+            pass
+        # SPOKEN brevity (applied AFTER persona so it isn't overwritten): a short reply
+        # generates faster AND is quicker to speak, so the back-and-forth feels snappy.
+        # Cap tokens low and tell the coach to be terse + conversational (1-2 sentences).
+        ctx["max_tokens"] = 90
+        brief = ("SPOKEN MODE: reply in 1-2 short, natural sentences a coach would say "
+                 "out loud. Be direct and conversational -- no lists, no headings, no "
+                 "preamble. Get to the point fast.")
+        ctx["persona"] = ((ctx.get("persona") + "\n\n") if ctx.get("persona") else "") + brief
     try:
         out = fragroute_ai.ai_chat(text, history, ctx)
         return (out or {}).get("reply")
@@ -1239,7 +1253,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "17.2"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "17.3"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -8348,6 +8362,14 @@ def main():
             fragroute_voice.FFMPEG = None
         try:
             fragroute_voice.PREFERRED_MIC = get_setting("voiceMic", None) or None
+        except Exception:
+            pass
+        try:
+            # warm the whisper server at startup so the FIRST voice turn is already
+            # fast (decode-only), and stop it cleanly on exit.
+            fragroute_voice.prewarm_whisper()
+            import atexit
+            atexit.register(lambda: fragroute_voice.stop_whisper())
         except Exception:
             pass
     if fragroute_yolo is not None:

@@ -10,9 +10,12 @@ The engine sets STT_DIR + FFMPEG. Pure stdlib (subprocess).
 import math
 import os
 import re
+import socket
 import subprocess
 import tempfile
+import threading
 import time
+import urllib.request
 import wave
 from pathlib import Path
 
@@ -71,6 +74,19 @@ def find_model():
         return len(order)
     bins.sort(key=rank)
     return str(bins[0])
+
+
+def find_fast_model():
+    """The FASTEST-decoding model present, for low-latency conversational voice:
+    tiny/base decode ~3x quicker than small on CPU and are accurate enough for short
+    spoken questions. Prefers base(.en) > tiny > then whatever find_model() has."""
+    d = _base_dir()
+    if d.exists():
+        for pref in ("base.en", "base", "tiny.en", "tiny"):
+            for p in d.glob("*.bin"):
+                if pref in p.name.lower():
+                    return str(p)
+    return find_model()
 
 
 def available():
@@ -341,7 +357,7 @@ def _rms16_norm(data):
     return math.sqrt(acc / len(a)) / 32768.0
 
 
-def record_vad(max_seconds=12, start_timeout=5.0, silence_hang=0.8, min_speech=0.25):
+def record_vad(max_seconds=12, start_timeout=5.0, silence_hang=0.5, min_speech=0.25):
     """Record the mic with VOICE-ACTIVITY DETECTION: wait for you to start talking,
     then stop ~`silence_hang`s after you stop -- so a short reply returns in ~1-2s
     instead of always waiting a fixed window. Writes a 16kHz mono WAV (post-processed
@@ -439,8 +455,151 @@ def record_vad(max_seconds=12, start_timeout=5.0, silence_hang=0.8, min_speech=0
     return raw_path if os.path.exists(raw_path) else None
 
 
+# --------------------------------------------------------------------------- #
+#  Persistent whisper SERVER -- keeps the model loaded so each transcription is
+#  decode-only (~1-2s) instead of reloading the 465MB model every call (~3s+).
+#  This is the big latency win for smooth back-and-forth voice.
+# --------------------------------------------------------------------------- #
+_WSERVER = {"proc": None, "port": None, "ready": False, "lock": threading.Lock()}
+_WHISPER_PROMPT = ("FragPunk shooter. Lancers, shard cards, weapons, crosshair, aim, peek, "
+                   "rotate, push, queue, region, ping, clutch, headshot, entry, retake, flank.")
+
+
+def find_whisper_server():
+    d = _base_dir()
+    if d.exists():
+        for p in d.rglob("whisper-server.exe"):
+            return str(p)
+    return None
+
+
+def _free_port():
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    p = s.getsockname()[1]
+    s.close()
+    return p
+
+
+def _wserver_up(port):
+    try:
+        urllib.request.urlopen("http://127.0.0.1:%d/" % port, timeout=1)
+        return True
+    except urllib.error.HTTPError:
+        return True                     # any HTTP response = server is listening
+    except Exception:
+        return False
+
+
+def ensure_whisper_server(timeout=60):
+    """Start (once) a persistent whisper-server with the model resident. Returns True
+    when it's answering. CPU (-ng) so it never competes with the game/LLM GPUs."""
+    st = _WSERVER
+    if st["ready"] and st["proc"] is not None and st["proc"].poll() is None:
+        return True
+    with st["lock"]:
+        if st["ready"] and st["proc"] is not None and st["proc"].poll() is None:
+            return True
+        w, m = find_whisper_server(), find_fast_model()   # base.en = fast decode
+        if not w or not m:
+            return False
+        port = _free_port()
+        args = [w, "-m", m, "--host", "127.0.0.1", "--port", str(port),
+                "-ng", "-t", "8", "--no-fallback"]
+        try:
+            proc = subprocess.Popen(args, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL, **_NOWIN)
+        except Exception:
+            return False
+        t0 = time.time()
+        while time.time() - t0 < timeout:
+            if proc.poll() is not None:
+                return False
+            if _wserver_up(port):
+                st.update(proc=proc, port=port, ready=True)
+                return True
+            time.sleep(0.5)
+        try:
+            proc.terminate()
+        except Exception:
+            pass
+        return False
+
+
+def prewarm_whisper():
+    """Warm the whisper server in the background so the first transcription is fast."""
+    if find_whisper_server() is None:
+        return
+    if _WSERVER["ready"] and _WSERVER["proc"] and _WSERVER["proc"].poll() is None:
+        return
+    threading.Thread(target=ensure_whisper_server, daemon=True).start()
+
+
+def stop_whisper():
+    """Stop the persistent whisper server (called on app exit)."""
+    st = _WSERVER
+    p = st.get("proc")
+    if p is not None and p.poll() is None:
+        try:
+            p.terminate()
+            p.wait(timeout=3)
+        except Exception:
+            try:
+                p.kill()
+            except Exception:
+                pass
+    st.update(proc=None, port=None, ready=False)
+
+
+def _transcribe_server(wav):
+    """POST the WAV to the warm whisper-server /inference endpoint. Returns text or
+    None (so the caller can fall back to the one-shot CLI)."""
+    if not ensure_whisper_server():
+        return None
+    port = _WSERVER["port"]
+    try:
+        with open(wav, "rb") as f:
+            audio = f.read()
+    except Exception:
+        return None
+    boundary = "----fragrouteVoice7f3a"
+    pre = []
+    for name, val in (("temperature", "0.0"), ("response_format", "text"),
+                      ("prompt", _WHISPER_PROMPT)):
+        pre.append("--%s\r\nContent-Disposition: form-data; name=\"%s\"\r\n\r\n%s\r\n"
+                   % (boundary, name, val))
+    filehdr = ("--%s\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.wav\"\r\n"
+               "Content-Type: audio/wav\r\n\r\n" % boundary)
+    body = ("".join(pre) + filehdr).encode("utf-8") + audio + ("\r\n--%s--\r\n" % boundary).encode("utf-8")
+    try:
+        req = urllib.request.Request("http://127.0.0.1:%d/inference" % port, data=body,
+                                     headers={"Content-Type": "multipart/form-data; boundary=" + boundary})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            raw = r.read().decode("utf-8", "ignore").strip()
+    except Exception:
+        _WSERVER["ready"] = False       # server died -> let ensure restart it next time
+        return None
+    # response_format=text returns plain text; some builds still wrap it in JSON
+    if raw.startswith("{"):
+        try:
+            import json
+            raw = (json.loads(raw).get("text") or "").strip()
+        except Exception:
+            pass
+    raw = re.sub(r"^\[[^\]]*\]\s*", "", raw).strip()
+    return raw or None
+
+
 def transcribe(wav):
-    """Run whisper-cli on a WAV; return the transcribed text (from stdout)."""
+    """Transcribe a WAV. Prefers the persistent whisper SERVER (warm model, fast);
+    falls back to the one-shot whisper-cli."""
+    if not wav or not os.path.exists(wav):
+        return None
+    if find_whisper_server():
+        txt = _transcribe_server(wav)
+        if txt is not None:
+            return txt                  # server answered (may be '' -> None already handled)
+    # fallback: one-shot CLI
     w, m = find_whisper(), find_model()
     if not w or not m or not wav or not os.path.exists(wav):
         return None
@@ -450,10 +609,12 @@ def transcribe(wav):
     prompt = ("FragPunk shooter. Lancers, shard cards, weapons, crosshair, aim, peek, "
               "rotate, push, queue, region, ping, clutch, headshot, entry, retake, flank.")
     # -ng (no GPU): run on the CPU, NOT the 4070. Whisper on the game GPU stutters
-    # your FPS; this 24-core Ryzen transcribes small.en in a couple seconds with zero
-    # game-GPU impact. -t 6 leaves plenty of cores for the game.
-    args = [w, "-m", m, "-f", wav, "-nt", "-l", "en", "-ng", "-t", "6",
-            "--beam-size", "5", "--prompt", prompt]
+    # your FPS; this 24-core Ryzen transcribes small.en fast on CPU.
+    # SPEED: beam-size 1 + best-of 1 (greedy) + no-fallback is ~2-3x faster than
+    # beam 5 with negligible accuracy loss on short conversational clips -> snappier
+    # voice turns. More threads (8) since transcription is brief and bursty.
+    args = [w, "-m", m, "-f", wav, "-nt", "-l", "en", "-ng", "-t", "8",
+            "--beam-size", "1", "--best-of", "1", "--no-fallback", "--prompt", prompt]
     try:
         p = subprocess.run(args, capture_output=True, text=True, timeout=90, **_NOWIN)
         text = (p.stdout or "").strip()
