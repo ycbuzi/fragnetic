@@ -53,6 +53,15 @@ MANIFEST = [
      "filename": "ggml-small.en.bin", "approxMB": 466, "required": False,
      "sha256": "c6138d6d58ecc8322097e0f987c32f1be8bb0a18532a3f88f734d1bbf9c41e5d",
      "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin"},
+    # FAST voice model: the persistent whisper-server (fragroute_voice.find_fast_model)
+    # prefers base.en for low-latency conversational voice (~3x faster decode than
+    # small.en -- verified 4.5s->2.0s per turn). Without this, a fresh buyer install
+    # only has small.en and voice replies are noticeably slower. No embedded hash yet
+    # (not independently re-verified against the upstream file) -> size-check only,
+    # same as the 14B/ffmpeg entries below.
+    {"key": "voice_fast", "label": "Voice STT -- fast (whisper base.en, snappy replies)", "folder": "stt",
+     "filename": "ggml-base.en.bin", "approxMB": 141, "required": False,
+     "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin"},
     {"key": "ffmpeg", "label": "Recorder/Video (ffmpeg LGPL)", "folder": ".",
      "filename": "ffmpeg.exe", "approxMB": 110, "required": True, "kind": "zip_ffmpeg",
      "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip"},

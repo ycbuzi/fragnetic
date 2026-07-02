@@ -5569,6 +5569,27 @@ async function aifSaveOpt(key,val){
 })();
 </script>
 <!-- ===== Login gate (covers the app until signed in) ===== -->
+<div id="disclaimerGate" class="auth-gate" style="display:none">
+  <div class="auth-card">
+    <div class="auth-brand">FRAG<span>NETIC</span></div>
+    <div class="auth-sub">Before you continue</div>
+    <div class="auth-foot" style="text-align:left;line-height:1.5">
+      Fragnetic is an <b>independent, unofficial</b> companion app for FragPunk —
+      not made by, affiliated with, or endorsed by NetEase. Third-party software
+      use is governed by FragPunk's own Terms of Service. Fragnetic avoids
+      touching the game's process memory or automating input, but no
+      third-party tool can guarantee immunity from any game's enforcement
+      systems. Use is at your own risk.
+    </div>
+    <label class="auth-foot" style="display:flex;gap:8px;align-items:center;margin-top:12px;cursor:pointer">
+      <input type="checkbox" id="disclaimerCheck" style="width:16px;height:16px">
+      I understand and agree to the <a href="#" id="disclaimerEula" style="margin:0 4px">EULA</a> and
+      <a href="#" id="disclaimerPrivacy" style="margin-left:4px">Privacy Policy</a>
+    </label>
+    <button id="disclaimerContinue" class="auth-btn" style="margin-top:14px" disabled>Continue</button>
+  </div>
+</div>
+
 <div id="authGate" class="auth-gate" style="display:none">
   <div class="auth-card">
     <div class="auth-brand">FRAG<span>NETIC</span></div>
@@ -5618,7 +5639,31 @@ async function aifSaveOpt(key,val){
 // ===================== Accounts + entitlements =====================
 let AUTH_MODE = 'login', ENT = null, _RECOVERY_NEXT = 'enter';
 function _hideGate(){ _g('authGate').style.display='none'; document.body.classList.remove('auth-locked'); }
-function _showGate(){ _g('authGate').style.display='flex'; document.body.classList.add('auth-locked'); }
+function _showGate(){
+  // One-time disclaimer (unofficial tool + ToS risk) before the account gate,
+  // per user's request to be sale-ready. Shown once per install (localStorage),
+  // not nagged on every launch.
+  try{
+    if(localStorage.getItem('disclaimerAccepted')!=='1'){
+      const dg=_g('disclaimerGate');
+      if(dg){ dg.style.display='flex'; document.body.classList.add('auth-locked'); return; }
+    }
+  }catch(e){}
+  _g('authGate').style.display='flex'; document.body.classList.add('auth-locked');
+}
+(function wireDisclaimer(){
+  const chk=_g('disclaimerCheck'), btn=_g('disclaimerContinue'), dg=_g('disclaimerGate');
+  if(!chk||!btn||!dg) return;
+  chk.addEventListener('change',()=>{ btn.disabled=!chk.checked; });
+  btn.addEventListener('click',()=>{
+    try{ localStorage.setItem('disclaimerAccepted','1'); }catch(e){}
+    dg.style.display='none';
+    _g('authGate').style.display='flex'; document.body.classList.add('auth-locked');
+  });
+  const openDoc=(name)=>{ try{ fetch(API+'/api/docs/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})}); }catch(e){} };
+  const eu=_g('disclaimerEula'); if(eu)eu.addEventListener('click',(e)=>{ e.preventDefault(); openDoc('EULA.md'); });
+  const pr=_g('disclaimerPrivacy'); if(pr)pr.addEventListener('click',(e)=>{ e.preventDefault(); openDoc('PRIVACY.md'); });
+})();
 const _g = (id) => document.getElementById(id);
 const _v = (id) => (_g(id).value || '').trim();
 async function _postJ(path, body){

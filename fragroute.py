@@ -1280,7 +1280,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "17.4"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "17.5"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -8113,6 +8113,31 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "message": "capture module unavailable"}, 503)
             secs = max(60, int(body.get("seconds", 60))) if body else 60
             return self._json(fragroute_capture.save_clip(_captures_dir(), secs, body.get("label") if body else None))
+
+        if path == "/api/docs/open":
+            # open a bundled legal/readme doc (EULA/Privacy/Refund/Notices) with the
+            # OS default viewer, for the disclaimer gate's "EULA" / "Privacy Policy"
+            # links and any future in-app help links. Name is whitelisted -- never
+            # opens an arbitrary path.
+            _ALLOWED_DOCS = {"EULA.md", "PRIVACY.md", "REFUND.md", "DISCLAIMER.md",
+                             "THIRD_PARTY_NOTICES.txt", "README.md"}
+            name = ((body or {}).get("name") or "").strip()
+            if name not in _ALLOWED_DOCS:
+                return self._json({"ok": False, "message": "unknown document"}, 400)
+            try:
+                base = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+                p = base / name
+                if not p.exists():
+                    return self._json({"ok": False, "message": "document not found"}, 404)
+                if OS == "Windows":
+                    os.startfile(str(p))       # noqa: default text/markdown viewer
+                elif sys.platform == "darwin":
+                    subprocess.Popen(["open", str(p)])
+                else:
+                    subprocess.Popen(["xdg-open", str(p)])
+                return self._json({"ok": True})
+            except Exception as e:
+                return self._json({"ok": False, "message": str(e)[:120]})
 
         if path == "/api/capture/openfolder":
             # open the recordings folder in the OS file manager

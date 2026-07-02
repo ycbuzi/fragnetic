@@ -1,4 +1,4 @@
-FRAGROUTE — Third-Party Notices & Licenses
+Fragnetic — Third-Party Notices & Licenses
 ===========================================
 
 This product bundles or uses the third-party components listed below. Each is
@@ -92,3 +92,44 @@ IN-GAME COACH MODEL -- Phi-3.5-mini-instruct
 The in-game (low-FPS-impact) coach uses Microsoft's Phi-3.5-mini-instruct,
 licensed under the MIT License (commercial use permitted). GGUF quant by
 bartowski. (c) Microsoft.
+
+-----------------------------------------------------------------------------
+VOICE -- whisper.cpp server + models
+-----------------------------------------------------------------------------
+Speech-to-text uses whisper.cpp (MIT, above) with OpenAI's Whisper model
+weights (MIT License, commercial use permitted): ggml-base.en (fast/live) and
+ggml-small.en (fallback/accuracy). https://github.com/openai/whisper
+
+-----------------------------------------------------------------------------
+PYTHON APPLICATION LIBRARIES
+-----------------------------------------------------------------------------
+pywebview (native window)                    License: BSD-3-Clause
+  https://github.com/r0x0r/pywebview
+pythonnet (.NET interop for the frameless
+  native window)                             License: MIT
+  https://github.com/pythonnet/pythonnet
+cryptography (Ed25519 license-key signing/
+  verification)                              License: Apache-2.0 / BSD-3-Clause (dual)
+  https://github.com/pyca/cryptography
+maxminddb (offline GeoIP .mmdb reader)       License: Apache-2.0
+  https://github.com/maxmind/MaxMind-DB-Reader-python
+Pillow (image handling)                      License: MIT-CMU (HPND)
+  https://python-pillow.org
+pyaudiowpatch (WASAPI loopback + mic
+  capture -- recording audio, voice input)   License: Apache-2.0
+  https://github.com/s0d3s/PyAudioWPatch
+pystray (system tray icon)                   License: LGPL-3.0
+  https://github.com/moses-palmer/pystray
+  Used unmodified, as a separate importable dependency (not statically linked
+  into a single object); source is available upstream and on request.
+onnxruntime-directml (detector/vision
+  inference on GPU)                          License: MIT
+  https://github.com/microsoft/onnxruntime
+
+-----------------------------------------------------------------------------
+BRANDING
+-----------------------------------------------------------------------------
+"Fragnetic" and its logo are the product name/mark of this application and are
+NOT affiliated with, sponsored by, or endorsed by NetEase or the FragPunk team.
+"FragPunk" is a trademark of its respective owner, referenced here solely to
+describe compatibility (nominative fair use).

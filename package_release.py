@@ -14,7 +14,7 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 DIST = HERE / "dist"
-OUT = HERE / "release" / "FRAGROUTE"
+OUT = HERE / "release" / "Fragnetic"
 
 # explicit single files to ship (app + tools + notices)
 FILES = [
@@ -23,6 +23,10 @@ FILES = [
     (DIST / "wireguard.exe", "wireguard.exe"),
     (DIST / "README.md", "README.md"),
     (HERE / "THIRD_PARTY_NOTICES.txt", "THIRD_PARTY_NOTICES.txt"),
+    (HERE / "EULA.md", "EULA.md"),
+    (HERE / "PRIVACY.md", "PRIVACY.md"),
+    (HERE / "REFUND.md", "REFUND.md"),
+    (HERE / "DISCLAIMER.md", "DISCLAIMER.md"),
     (DIST / "clip" / "clip_vitb32.onnx", "clip/clip_vitb32.onnx"),  # generated, no URL -> ship
     (DIST / "yolo" / "fragpunk_taxonomy.txt", "yolo/fragpunk_taxonomy.txt"),
 ]

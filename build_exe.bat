@@ -155,6 +155,11 @@ REM  queue log if dist\ doesn't already have one.
 if exist configs xcopy /e /i /y configs "dist\configs" >nul
 if exist fragroute_queue_log.json if not exist "dist\fragroute_queue_log.json" copy /y fragroute_queue_log.json "dist\" >nul
 if exist README.md copy /y README.md "dist\" >nul
+if exist EULA.md copy /y EULA.md "dist\" >nul
+if exist PRIVACY.md copy /y PRIVACY.md "dist\" >nul
+if exist REFUND.md copy /y REFUND.md "dist\" >nul
+if exist DISCLAIMER.md copy /y DISCLAIMER.md "dist\" >nul
+if exist THIRD_PARTY_NOTICES.txt copy /y THIRD_PARTY_NOTICES.txt "dist\" >nul
 if exist wireguard.exe copy /y wireguard.exe "dist\" >nul
 REM  ffmpeg (NVENC + ddagrab) powers the low-impact match recorder. It is a
 REM  SIDECAR next to the exe -- intentionally NOT --add-data'd into the onefile
