@@ -34,17 +34,52 @@ MIN_PW = 8
 _LOCK = threading.Lock()
 _SESSION = {"user": None}      # in-memory current login
 
-# ---- brute-force throttle (in-memory, per username) -------------------------
+# ---- brute-force throttle (per username, persisted across restarts) ---------
 MAX_ATTEMPTS = 8               # failed tries before a lockout window kicks in
 LOCKOUT_SECS = 300            # how long the account input is frozen after that
 _ATTEMPTS = {}                 # norm(username) -> {"n": int, "until": epoch}
 _ATTEMPTS_LOCK = threading.Lock()
+_ATTEMPTS_LOADED = False
+
+
+def _throttle_path():
+    return _base() / "fragroute_throttle.json"
+
+
+def _throttle_load_locked():
+    """Load persisted state once (caller holds _ATTEMPTS_LOCK). Restarting the
+    app must not reset an active lockout, or the throttle is trivially
+    bypassable by relaunching between attempts."""
+    global _ATTEMPTS_LOADED
+    if _ATTEMPTS_LOADED:
+        return
+    _ATTEMPTS_LOADED = True
+    try:
+        d = json.loads(_throttle_path().read_text(encoding="utf-8"))
+        now = time.time()
+        for k, v in d.items():
+            if isinstance(v, dict) and (v.get("n") or v.get("until", 0) > now):
+                _ATTEMPTS[k] = {"n": int(v.get("n", 0)), "until": float(v.get("until", 0))}
+    except Exception:
+        pass
+
+
+def _throttle_save_locked():
+    try:
+        now = time.time()
+        live = {k: v for k, v in _ATTEMPTS.items() if v.get("n") or v.get("until", 0) > now}
+        tmp = str(_throttle_path()) + ".tmp"
+        Path(tmp).write_text(json.dumps(live), encoding="utf-8")
+        os.replace(tmp, _throttle_path())
+    except Exception:
+        pass
 
 
 def _throttle_check(username):
     """Return remaining lockout seconds (0 if clear)."""
     key = _norm(username)
     with _ATTEMPTS_LOCK:
+        _throttle_load_locked()
         rec = _ATTEMPTS.get(key)
         if not rec:
             return 0
@@ -56,16 +91,20 @@ def _throttle_check(username):
 def _throttle_fail(username):
     key = _norm(username)
     with _ATTEMPTS_LOCK:
+        _throttle_load_locked()
         rec = _ATTEMPTS.setdefault(key, {"n": 0, "until": 0})
         rec["n"] += 1
         if rec["n"] >= MAX_ATTEMPTS:
             rec["until"] = time.time() + LOCKOUT_SECS
             rec["n"] = 0
+        _throttle_save_locked()
 
 
 def _throttle_clear(username):
     with _ATTEMPTS_LOCK:
-        _ATTEMPTS.pop(_norm(username), None)
+        _throttle_load_locked()
+        if _ATTEMPTS.pop(_norm(username), None) is not None:
+            _throttle_save_locked()
 
 
 def _base():
