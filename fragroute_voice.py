@@ -370,7 +370,10 @@ def record_vad(max_seconds=12, start_timeout=5.0, silence_hang=0.8, min_speech=0
             except Exception:
                 break
         floor = (sorted(base)[len(base) // 2] if base else 0.0)
-        thr = max(0.012, floor * 2.5 + 0.006)     # speech threshold above the floor
+        # threshold above the floor, but CAPPED so that if you happen to be talking
+        # during the 250ms calibration (floor reads high) it can't set an impossibly
+        # high bar that your normal speech never clears.
+        thr = min(0.045, max(0.010, floor * 2.5 + 0.006))
         frames = []
         started = False
         t0 = time.time()
