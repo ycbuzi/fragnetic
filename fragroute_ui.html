@@ -1529,6 +1529,12 @@
       </span>
       <button class="mini-btn" id="apTestVoice" title="Hear the coach's neural voice">🔊 Test voice</button>
     </div>
+    <div class="ai-persona" id="aiMicRow">
+      <span class="ap-label">🎤 Your mic</span>
+      <select class="set-select" id="aiMicSelect" style="max-width:260px" title="Which microphone the coach listens to for voice"></select>
+      <button class="mini-btn" id="aiMicTest" title="Talk after clicking — confirms the coach can hear this mic">Test mic</button>
+      <span id="aiMicStatus" class="ap-style"></span>
+    </div>
     <div class="ai-chat" id="aiChat"></div>
     <div class="ai-chips" id="aiChips"></div>
     <div class="ai-bar">
@@ -2916,7 +2922,7 @@ function switchTab(name){
   if(changing)fxTabSwitch(name);   // screen-tear + glitch-in transition
   // jumping to News? make sure it's loaded (in case the first pull failed)
   if(name==='news'&&!NEWS_OK)loadNews(true);
-  if(name==='coach' && typeof aiLlmStatus==='function'){ aiLlmStatus(); if(typeof apLoad==='function')apLoad(); }
+  if(name==='coach' && typeof aiLlmStatus==='function'){ aiLlmStatus(); if(typeof apLoad==='function')apLoad(); if(typeof aiLoadMics==='function')aiLoadMics(); }
   if(name==='footage' && typeof aifRefresh==='function'){ aifRefresh(); aifLoadOpts&&aifLoadOpts(); }
   if(name==='create' && typeof igStatus==='function'){ igStatus(); igLoad&&igLoad(); }
   if(name==='vision' && typeof mvLoad==='function'){ mvLoad(); fetch(API+'/api/ai/vision/warm').catch(()=>{}); }  // pre-load the model so Recognize is fast
@@ -4883,6 +4889,41 @@ async function _aiConverseSync(){
     const b=document.getElementById('aiConverse'); if(b){ b.textContent='🎙️ Talk: '+(_converseOn?'ON':'off'); b.classList.toggle('sel',_converseOn); }
   }catch(e){}
 }
+// ---- mic selector: pick which microphone the coach listens to ----
+async function aiLoadMics(){
+  const sel=document.getElementById('aiMicSelect'); if(!sel)return;
+  try{
+    const j=await (await fetch(API+'/api/voice/mics')).json();
+    if(!j.ok||!j.mics){ sel.innerHTML='<option value="">(mic list unavailable)</option>'; return; }
+    const cur=j.selected||'';
+    sel.innerHTML=j.mics.map(m=>{
+      const val=m.system?'':m.name;
+      const lbl=escapeHtml(m.name)+(m.default&&!m.system?' (default)':'');
+      return `<option value="${escapeHtml(val)}"${val===cur?' selected':''}>${lbl}</option>`;
+    }).join('');
+  }catch(e){ sel.innerHTML='<option value="">(mic list unavailable)</option>'; }
+}
+async function aiMicTest(){
+  const sel=document.getElementById('aiMicSelect'), st=document.getElementById('aiMicStatus'), b=document.getElementById('aiMicTest');
+  const mic=sel?sel.value:'';
+  if(st)st.textContent='🎤 listening ~1.5s — talk now…'; if(b)b.disabled=true;
+  try{
+    const j=await (await fetch(API+'/api/voice/mictest?mic='+encodeURIComponent(mic))).json();
+    if(st){
+      if(!j.ok){ st.textContent='⚠️ '+(j.message||'test failed'); }
+      else{ const pct=Math.round((j.level||0)*100);
+        st.textContent=(j.heard?'✓ ':'⚠️ ')+j.message+' ('+(j.device||'default')+', level '+pct+'%)';
+        st.style.color=j.heard?'var(--good,#3affa3)':'var(--warn,#ffb454)';
+      }
+    }
+  }catch(e){ if(st)st.textContent='⚠️ mic test failed'; }
+  if(b)b.disabled=false;
+}
+(function wireMic(){
+  const sel=document.getElementById('aiMicSelect');
+  if(sel)sel.addEventListener('change',()=>{ saveSetting('voiceMic', sel.value||''); const st=document.getElementById('aiMicStatus'); if(st)st.textContent='Saved — hit Test mic to confirm it hears you.'; });
+  const b=document.getElementById('aiMicTest'); if(b)b.addEventListener('click',aiMicTest);
+})();
 // ---- adaptive coach personality panel ----
 async function apLoad(){
   try{ const j=await (await fetch(API+'/api/ai/persona')).json();

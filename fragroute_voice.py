@@ -28,6 +28,7 @@ APP_VOICE_BUILD = "voice-2"    # voice-2: VAD (auto-stop on silence) for snappy 
 
 STT_DIR = None             # set by engine; default <module|exe>/stt
 FFMPEG = None              # set by engine -> path to ffmpeg.exe (for mic capture)
+PREFERRED_MIC = None       # set by engine from the 'voiceMic' setting (name; None=default)
 _MIC = {"device": None, "checked": False}
 _NOWIN = {"creationflags": 0x08000000} if os.name == "nt" else {}
 
@@ -99,7 +100,7 @@ def detect_mic(refresh=False):
 
 def record(seconds=5):
     """Record the mic to a 16kHz mono WAV (what whisper wants). Returns path or None."""
-    mic = detect_mic()
+    mic = PREFERRED_MIC or detect_mic()      # user-selected mic (or auto default)
     if not mic or not FFMPEG:
         return None
     wav = os.path.join(tempfile.gettempdir(), "fragroute_voice.wav")
@@ -119,6 +120,128 @@ def record(seconds=5):
 
 def vad_available():
     return _pa is not None
+
+
+def list_mics():
+    """Enumerate usable microphone INPUT devices so the user can pick which one the
+    coach listens to (fixes 'the AI can't hear my mic' when the default input is the
+    wrong device). Returns [{name, default}] with a 'System default' entry first.
+    Deduped by name; loopback/output devices excluded."""
+    out = [{"name": "System default", "default": True, "system": True}]
+    if _pa is None:
+        return out
+    p = _pa.PyAudio()
+    try:
+        try:
+            dflt = p.get_default_input_device_info().get("name")
+        except Exception:
+            dflt = None
+        # Prefer the WASAPI host API: full, un-truncated device names and no MME/
+        # DirectSound duplicates or aggregate pseudo-devices ("Sound Mapper" etc.).
+        wasapi_idx = None
+        try:
+            wasapi_idx = p.get_host_api_info_by_type(_pa.paWASAPI).get("index")
+        except Exception:
+            wasapi_idx = None
+        # generic aggregate inputs that aren't a real mic -- never useful to pick
+        _JUNK = ("sound mapper", "primary sound capture", "@system32")
+        for pass_wasapi in (True, False):          # WASAPI-only first; fall back to all
+            if not (pass_wasapi and wasapi_idx is None) and len(out) > 1:
+                break                              # got WASAPI devices -> don't add dupes
+            seen = set(m["name"] for m in out)
+            for i in range(p.get_device_count()):
+                try:
+                    d = p.get_device_info_by_index(i)
+                except Exception:
+                    continue
+                if int(d.get("maxInputChannels") or 0) <= 0 or d.get("isLoopbackDevice"):
+                    continue
+                if pass_wasapi and wasapi_idx is not None and d.get("hostApi") != wasapi_idx:
+                    continue
+                name = (d.get("name") or "").strip()
+                low = name.lower()
+                if not name or name in seen or any(j in low for j in _JUNK):
+                    continue
+                seen.add(name)
+                out.append({"name": name, "default": (name == dflt), "system": False})
+    finally:
+        try:
+            p.terminate()
+        except Exception:
+            pass
+    return out
+
+
+def _resolve_input_index(p, mic_name):
+    """pyaudio input-device index for a chosen mic NAME (None/'' -> system default).
+    Falls back to the default device if the name isn't found."""
+    if not mic_name:
+        try:
+            return p.get_default_input_device_info().get("index")
+        except Exception:
+            return None
+    # exact, then substring (WASAPI names can carry suffixes)
+    cand = None
+    for i in range(p.get_device_count()):
+        try:
+            d = p.get_device_info_by_index(i)
+        except Exception:
+            continue
+        if int(d.get("maxInputChannels") or 0) <= 0 or d.get("isLoopbackDevice"):
+            continue
+        nm = (d.get("name") or "")
+        if nm == mic_name:
+            return i
+        if cand is None and mic_name.lower() in nm.lower():
+            cand = i
+    if cand is not None:
+        return cand
+    try:
+        return p.get_default_input_device_info().get("index")
+    except Exception:
+        return None
+
+
+def mic_probe(mic_name=None, seconds=1.4):
+    """Record a short burst from the chosen mic and return the peak level, so the UI
+    can tell the user 'this mic hears you' (or is silent -> pick another)."""
+    name = mic_name if mic_name is not None else PREFERRED_MIC
+    if _pa is None:
+        return {"ok": False, "message": "mic testing needs the voice module", "level": 0.0}
+    p = _pa.PyAudio()
+    stream = None
+    try:
+        idx = _resolve_input_index(p, name)
+        try:
+            actual = p.get_device_info_by_index(idx).get("name") if idx is not None else "default"
+        except Exception:
+            actual = "default"
+        try:
+            stream = p.open(format=_pa.paInt16, channels=1, rate=16000, input=True,
+                            input_device_index=idx, frames_per_buffer=1024)
+        except Exception as e:
+            return {"ok": False, "message": "couldn't open that mic: %s" % str(e)[:80], "level": 0.0}
+        peak = 0.0
+        t0 = time.time()
+        while time.time() - t0 < seconds:
+            try:
+                peak = max(peak, _rms16_norm(stream.read(1024, exception_on_overflow=False)))
+            except Exception:
+                break
+        heard = peak > 0.015
+        return {"ok": True, "level": round(peak, 4), "device": actual, "heard": heard,
+                "message": ("Heard you clearly" if heard else
+                            "Very quiet -- talk louder, or pick another mic")}
+    finally:
+        try:
+            if stream is not None:
+                stream.stop_stream(); stream.close()
+        except Exception:
+            pass
+        try:
+            p.terminate()
+        except Exception:
+            pass
 
 
 def _rms16_norm(data):
@@ -152,10 +275,7 @@ def record_vad(max_seconds=12, start_timeout=5.0, silence_hang=0.8, min_speech=0
     p = _pa.PyAudio()
     stream = None
     try:
-        try:
-            idx = p.get_default_input_device_info().get("index")
-        except Exception:
-            idx = None
+        idx = _resolve_input_index(p, PREFERRED_MIC)   # user-selected mic (or default)
         try:
             stream = p.open(format=_pa.paInt16, channels=1, rate=rate, input=True,
                             input_device_index=idx, frames_per_buffer=chunk)

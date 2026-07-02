@@ -1047,6 +1047,10 @@ def _voice_record(max_secs):
     talking -> a short reply comes back in ~1-2s) and falls back to a fixed window."""
     if fragroute_voice is None:
         return None
+    try:                                  # honor the user's selected mic (or default)
+        fragroute_voice.PREFERRED_MIC = get_setting("voiceMic", None) or None
+    except Exception:
+        pass
     try:
         if getattr(fragroute_voice, "vad_available", lambda: False)():
             return fragroute_voice.record_vad(max_seconds=max(6, int(max_secs)))
@@ -1203,7 +1207,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "16.2"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "16.3"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -3434,11 +3438,18 @@ def region_server_ips(region_id):
 # the region lock has something to block before the learned map fills. 8.221 is SPLIT
 # across us-east (8.221.51) and asia-east (8.221.146), so it's only ever seeded at /24
 # -- never blanket the whole 8.221/16. Learned /24s (record_server) are merged on top.
+# COVERAGE NOTE: FragPunk does NOT switch region when only SOME of a region's servers
+# are blocked -- it just picks another server in the SAME region (confirmed live: with
+# 8.221.51/59 blocked it hopped to 8.221.49). So forcing a region change needs the
+# away-regions covered COMPREHENSIVELY. The us-east session+gameplay cluster spans
+# 8.221.48-63 (seen .49/.51/.59) -> block the whole 8.221.48.0/20; Tokyo is 8.221.146
+# (safely OUTSIDE it) and the lobby 8.221.58.x is inside but protected by the :11000
+# port whitelist. UDP gameplay also uses Alibaba 47.77 + GCP 136.119 (Iowa) -> /16.
 _REGION_SEED_CIDRS = {
-    "us-east":   ["8.221.51.0/24", "47.77.129.0/24", "136.119.22.0/24", "47.246.0.0/16"],
+    "us-east":   ["8.221.48.0/20", "47.77.0.0/16", "47.246.0.0/16", "136.119.0.0/16"],
     "us-west":   [],
     "eu":        ["8.211.0.0/16"],
-    "asia-se":   ["47.84.150.0/24", "8.219.0.0/16"],
+    "asia-se":   ["47.84.0.0/16", "8.219.0.0/16"],
     "asia-east": ["8.221.146.0/24"],
 }
 
@@ -7255,6 +7266,28 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"available": False, "message": "capture module unavailable"})
             return self._json(fragroute_capture.status(_captures_dir()))
 
+        if path == "/api/voice/mics":
+            # list mic input devices so the user can pick which one the coach hears
+            if fragroute_voice is None:
+                return self._json({"ok": False, "mics": [], "message": "voice module unavailable"})
+            try:
+                mics = fragroute_voice.list_mics()
+            except Exception as e:
+                return self._json({"ok": False, "mics": [], "message": str(e)[:100]})
+            return self._json({"ok": True, "mics": mics,
+                               "selected": get_setting("voiceMic", "") or ""})
+
+        if path == "/api/voice/mictest":
+            # record a short burst from the chosen mic and report if it heard you
+            if fragroute_voice is None:
+                return self._json({"ok": False, "message": "voice module unavailable"})
+            _q = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+            name = (_q.get("mic", [""])[0] or get_setting("voiceMic", "") or "").strip() or None
+            try:
+                return self._json(fragroute_voice.mic_probe(name))
+            except Exception as e:
+                return self._json({"ok": False, "message": str(e)[:100], "level": 0.0})
+
         if path == "/api/regionlock/status":
             # Direct Region Lock: current state + which regions we have enough data to
             # block + a live latency-aware suggestion (from Arizona, auto biases East).
@@ -8248,6 +8281,10 @@ def main():
             fragroute_voice.FFMPEG = fragroute_capture.find_ffmpeg() if fragroute_capture else None
         except Exception:
             fragroute_voice.FFMPEG = None
+        try:
+            fragroute_voice.PREFERRED_MIC = get_setting("voiceMic", None) or None
+        except Exception:
+            pass
     if fragroute_yolo is not None:
         # offline YOLOX model + onnxruntime live in a 'yolo' folder next to app data
         fragroute_yolo.YOLO_DIR = STATE["configs_dir"].parent / "yolo"
