@@ -116,7 +116,7 @@ def record(seconds=5):
     # so whisper reliably hears you even if your input gain is low. 16kHz mono for whisper.
     args = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y",
             "-f", "dshow", "-i", "audio=" + mic, "-t", str(int(seconds)),
-            "-af", "highpass=f=90,dynaudnorm=p=0.9:m=12,volume=2", "-ar", "16000", "-ac", "1", wav]
+            "-af", "highpass=f=90,dynaudnorm=g=5:f=200,volume=2", "-ar", "16000", "-ac", "1", wav]
     try:
         subprocess.run(args, timeout=int(seconds) + 12, **_NOWIN)
         return wav if (os.path.exists(wav) and os.path.getsize(wav) > 0) else None
@@ -417,7 +417,7 @@ def record_vad(max_seconds=12, start_timeout=5.0, silence_hang=0.8, min_speech=0
     if FFMPEG:
         try:
             subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", raw_path,
-                            "-af", "highpass=f=90,dynaudnorm=p=0.9:m=12,volume=2",
+                            "-af", "highpass=f=90,dynaudnorm=g=5:f=200,volume=2",
                             "-ar", "16000", "-ac", "1", out], timeout=20, **_NOWIN)
             if os.path.exists(out) and os.path.getsize(out) > 0:
                 return out
