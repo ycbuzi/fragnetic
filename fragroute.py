@@ -1126,7 +1126,12 @@ def _voice_command_impl():
     SCOUT_STATE.update(text="you said: " + text, ts=int(time.time() * 1000))
     diag("ai", True, msg="voice: " + text[:60])
     user = ((fragroute_auth.current() if fragroute_auth else {}) or {}).get("username") or "default"
-    _speak(_coach_respond(text, user) or "I'm not sure.")
+    # UNIFIED CONVERSATION: this spoken turn shares history with the typed chat, and
+    # shows up in the chat log.
+    _convo_add("user", text, "voice")
+    reply = _coach_respond(text, user, _convo_history()) or "I'm not sure."
+    _convo_add("assistant", reply, "voice")
+    _speak(reply)
 
 
 def _coach_respond(text, user="default", history=None, fast=True):
@@ -1195,6 +1200,29 @@ _CONVERSE = {"on": False, "history": []}
 _CONVERSE_STOP = ("stop voice", "stop chat", "stop listening", "that's all", "thats all",
                   "end chat", "end conversation", "goodbye coach", "we're done", "were done", "stop talking")
 
+# UNIFIED CONVERSATION: one shared history for BOTH typed chat and spoken voice, so
+# the coach remembers across modalities (ask by voice, follow up by typing, etc.) and
+# voice turns show up in the chat log. Each turn: {role, content, via:'text'|'voice', ts}.
+_CONVO = {"turns": []}
+_CONVO_LOCK = threading.Lock()
+_CONVO_MAX = 40
+
+
+def _convo_add(role, content, via):
+    if not content:
+        return
+    with _CONVO_LOCK:
+        _CONVO["turns"].append({"role": role, "content": content, "via": via,
+                                "ts": int(time.time() * 1000)})
+        if len(_CONVO["turns"]) > _CONVO_MAX:
+            _CONVO["turns"] = _CONVO["turns"][-_CONVO_MAX:]
+
+
+def _convo_history(n=12):
+    """The recent shared turns as [{role, content}] for the LLM (both modalities)."""
+    with _CONVO_LOCK:
+        return [{"role": t["role"], "content": t["content"]} for t in _CONVO["turns"][-n:]]
+
 
 def _converse_loop():
     """VOICE-TO-VOICE: listen -> transcribe -> coach -> SPEAK (wait) -> repeat, until
@@ -1225,11 +1253,10 @@ def _converse_loop():
                 break
             SCOUT_STATE.update(text="you: " + text, ts=int(time.time() * 1000))
             diag("ai", True, msg="converse: " + text[:50])
-            reply = _coach_respond(text, user, _CONVERSE["history"])
+            _convo_add("user", text, "voice")          # shared with typed chat
+            reply = _coach_respond(text, user, _convo_history())
             if reply:
-                _CONVERSE["history"].append({"role": "user", "content": text})
-                _CONVERSE["history"].append({"role": "assistant", "content": reply})
-                _CONVERSE["history"] = _CONVERSE["history"][-12:]
+                _convo_add("assistant", reply, "voice")
                 SCOUT_STATE.update(text="coach: " + reply[:90], ts=int(time.time() * 1000))
                 _speak_sync(reply)             # blocks until spoken, THEN listen again
         except Exception as e:
@@ -1253,7 +1280,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "17.3"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "17.4"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -7345,6 +7372,19 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"available": False, "message": "capture module unavailable"})
             return self._json(fragroute_capture.status(_captures_dir()))
 
+        if path == "/api/ai/convo":
+            # the unified chat+voice transcript, so the chat UI shows spoken turns too.
+            # ?since=<ms> returns only newer turns (for lightweight polling).
+            _q = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+            since = 0
+            try:
+                since = int((_q.get("since", ["0"])[0]) or 0)
+            except Exception:
+                since = 0
+            with _CONVO_LOCK:
+                turns = [t for t in _CONVO["turns"] if t.get("ts", 0) > since]
+            return self._json({"turns": turns})
+
         if path == "/api/voice/mics":
             # list mic input devices so the user can pick which one the coach hears
             if fragroute_voice is None:
@@ -8009,8 +8049,14 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception:
                     pass
             try:
-                out = fragroute_ai.ai_chat(msg, body.get("history"), ctx)
+                # UNIFIED CONVERSATION: share history with voice. Use the shared
+                # transcript (so a typed question remembers what you SAID), and append
+                # both sides so voice sees typed turns too.
+                hist = _convo_history() or body.get("history")
+                out = fragroute_ai.ai_chat(msg, hist, ctx)
                 diag("ai", True, msg="chat:%s" % out.get("tool"))
+                _convo_add("user", msg, "text")
+                _convo_add("assistant", out.get("reply"), "text")
             except Exception as e:
                 diag("ai", False, msg="chat", exc=e)
                 raise
@@ -8021,6 +8067,11 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 pass
             return self._json(out)
+
+        if path == "/api/ai/convo/clear":
+            with _CONVO_LOCK:
+                _CONVO["turns"] = []
+            return self._json({"ok": True})
 
         if path == "/api/regionlock/apply":
             # Force a region WITHOUT a VPN by firewall-blocking the others. Requires an
