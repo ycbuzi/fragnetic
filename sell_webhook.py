@@ -38,8 +38,8 @@ WEBHOOK_SECRET = os.environ.get("FRAGNETIC_WEBHOOK_SECRET", "")
 # perpetual (a one-time "lifetime" purchase); use 30/365 for monthly/annual
 # subscriptions -- the buyer's key just expires and they re-subscribe/renew.
 PLAN_MAP = {
-    # "123456": ("pro", 30),     # <- replace with your real Lemon Squeezy variant IDs
-    # "123457": ("pro", 365),
+    "1190540": ("pro", 30),      # Fragnetic Pro -- Monthly ($5.99)  [confirm this is monthly]
+    "1861621": ("pro", 365),     # Fragnetic Pro -- Annual ($49)     [confirm this is annual]
 }
 
 # TODO 3: SMTP credentials for sending the key by email. For a real launch,
