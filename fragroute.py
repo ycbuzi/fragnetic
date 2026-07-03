@@ -7636,6 +7636,14 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/ai/screen":
             # UNIFIED live read (detector + optional vision). ?describe=1 adds the ~10s
             # vision line; default is the fast detector-only read (safe to poll).
+            # Screen reading is a paid feature -- gate it (GET endpoints bypass the
+            # POST-side feature gate, so it must be checked here explicitly).
+            if fragroute_license is not None and not fragroute_license.is_enabled("coach"):
+                _e = fragroute_license.entitlement()
+                return self._json({"ok": False, "error": "locked", "feature": "coach",
+                                   "tier": _e.get("tier"),
+                                   "message": "Screen reading is a Pro feature. Start your "
+                                              "free trial or add a license in Account."}, 402)
             q = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
             describe = (q.get("describe") or ["0"])[0] in ("1", "true", "yes")
             return self._json(screen_read(describe=describe))
