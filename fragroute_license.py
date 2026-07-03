@@ -54,6 +54,22 @@ FREE_FEATURES = ["queue", "vpn", "overlay", "locker", "stats", "setup", "cards"]
 # their hardware). This is how "admin is locked to my PC only" is enforced.
 OWNER_MACHINE_IDS = {"a4b4d266c63e7992"}
 
+# DEV-ONLY tier preview. The owner can 'view as' a customer tier (free/trial/pro) to
+# check the gated experience. It is honored ONLY on the owner machine (see entitlement)
+# and can only DOWNGRADE the owner's own view -- a customer can never reach admin to set
+# it, and even if the value were set it does nothing on non-owner hardware. Not persisted.
+_VIEW_AS = {"tier": None}
+
+
+def set_view_as(tier):
+    """Owner-only: preview the app as free/trial/pro (or None to clear). Returns the value."""
+    _VIEW_AS["tier"] = tier if tier in ("free", "trial", "pro") else None
+    return _VIEW_AS["tier"]
+
+
+def is_owner_machine():
+    return machine_id() in OWNER_MACHINE_IDS
+
 TRIAL_DAYS = 14
 KEY_PREFIX = "FRG1"
 
@@ -424,6 +440,13 @@ def entitlement():
         best = "admin"
         holder = holder or "Owner (this PC)"
         sources.append("owner-machine")
+
+    # DEV preview (owner machine only): 'view as' a customer tier to check the gated
+    # experience. Only ever downgrades the owner's own view; a customer can't reach it.
+    if _VIEW_AS.get("tier") and is_owner_machine():
+        best = _VIEW_AS["tier"]
+        holder = "Preview (%s)" % best
+        sources = ["viewAs:" + best]
 
     feats = {}
     for feat, need in FEATURES.items():

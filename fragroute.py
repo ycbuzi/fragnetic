@@ -8171,6 +8171,17 @@ class Handler(BaseHTTPRequestHandler):
             updated = save_settings(body or {})
             return self._json({"ok": True, "settings": updated})
 
+        if path == "/api/dev/viewas":
+            # OWNER-ONLY dev tool: preview the app as a customer tier (free/trial/pro),
+            # or null to clear. Rejected on any non-owner machine, so it can never unlock
+            # anything for a customer.
+            if fragroute_license is None or not fragroute_license.is_owner_machine():
+                return self._json({"ok": False, "error": "owner only"}, 403)
+            t = (body.get("tier") or "").strip().lower() or None
+            fragroute_license.set_view_as(t)
+            return self._json({"ok": True, "viewAs": t,
+                               "entitlement": fragroute_license.entitlement()})
+
         if path == "/api/settings/reset":
             updated = save_settings(dict(DEFAULT_SETTINGS))
             return self._json({"ok": True, "settings": updated})
