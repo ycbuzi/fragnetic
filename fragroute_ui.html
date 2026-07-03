@@ -1073,7 +1073,8 @@
   .acct-mid{margin-top:16px;font-size:10px;color:var(--text-mute)}
   .acct-mid code{color:var(--text)}
   .feat-locked{position:relative;opacity:.55}
-  .feat-locked::after{content:'PRO';position:absolute;top:3px;right:4px;font-size:8px;font-weight:800;color:var(--cyan);
+  /* PRO badge on ::before so the active-tab accent underline (::after) can't erase it */
+  .feat-locked::before{content:'PRO';position:absolute;top:3px;right:4px;font-size:8px;font-weight:800;color:var(--cyan);z-index:2;
     background:rgba(0,0,0,.55);border:1px solid var(--cyan);border-radius:4px;padding:0 3px;letter-spacing:.05em}
   /* hardware / compatibility panel */
   .hw-specs{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 6px}
