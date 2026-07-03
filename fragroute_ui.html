@@ -3966,7 +3966,7 @@ function copyHealthReport(){
 (function(){
   const c=document.getElementById('hlCopy'); if(c)c.addEventListener('click',copyHealthReport);
   const q=document.getElementById('hlQuit'); if(q)q.addEventListener('click',async()=>{
-    if(!confirm('Fully quit Fragnetic? (closes the recorder + tunnels and exits)'))return;
+    if(!await uiConfirm('This closes the recorder + tunnels and exits.',{title:'Quit Fragnetic',okText:'Quit',danger:true}))return;
     try{ await fetch(API+'/api/quit',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}); toast('Quitting…','ok'); }catch(e){}
   });
 })();
@@ -4008,9 +4008,9 @@ document.getElementById('disconnectBtn').addEventListener('click',doDisconnect);
 document.getElementById('verifyBtn').addEventListener('click',verifyIp);
 document.getElementById('pingBtn').addEventListener('click',refreshPings);
 document.getElementById('recConnectBtn').addEventListener('click',e=>{const rid=e.currentTarget.dataset.recTarget;if(rid)doConnectRegionBest(rid);});
-document.getElementById('clearBtn').addEventListener('click',async()=>{if(!LOG.length)return;if(confirm('Clear all queue history?')){await fetch(API+'/api/log/clear',{method:'POST'});LOG=[];renderLog();updateLive();}});
+document.getElementById('clearBtn').addEventListener('click',async()=>{if(!LOG.length)return;if(await uiConfirm('Clear all queue history?',{title:'Clear history',okText:'Clear',danger:true})){await fetch(API+'/api/log/clear',{method:'POST'});LOG=[];renderLog();updateLive();}});
 (function(){const b=document.getElementById('pruneUnkBtn');if(b)b.addEventListener('click',async()=>{
-  if(confirm('Remove the off-VPN matches with an unknown region? Your other history stays.')){
+  if(await uiConfirm('Remove the off-VPN matches with an unknown region? Your other history stays.',{title:'Prune unknown',okText:'Remove'})){
     try{const j=await (await fetch(API+'/api/log/prune',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
       LOG=j.log||LOG; renderLog(); updateLive(); toast('Removed '+(j.removed||0)+' unknown entr'+((j.removed===1)?'y':'ies'),'ok');
     }catch(e){ toast('Cleanup failed','err'); }
@@ -4189,7 +4189,7 @@ async function importLogFile(file){
   }catch(e){toast('Import failed: '+(e&&e.message?e.message:'bad file'),'err');}
 }
 async function resetAllSettings(){
-  if(!confirm('Reset all settings to defaults?'))return;
+  if(!await uiConfirm('Reset all settings to defaults?',{title:'Reset settings',okText:'Reset',danger:true}))return;
   try{
     const res=await fetch(API+'/api/settings/reset',{method:'POST'});
     const j=await res.json();
@@ -4209,7 +4209,7 @@ document.getElementById('setImportLog').addEventListener('click',()=>document.ge
 document.getElementById('setImportFile').addEventListener('change',e=>{importLogFile(e.target.files[0]);e.target.value='';});
 document.getElementById('setClearLog').addEventListener('click',async()=>{
   if(!LOG.length){toast('Log is already empty');return;}
-  if(confirm('Clear all queue history? This cannot be undone.')){await fetch(API+'/api/log/clear',{method:'POST'});LOG=[];renderLog();updateLive();toast('Queue log cleared','ok');}
+  if(await uiConfirm('Clear all queue history? This cannot be undone.',{title:'Clear history',okText:'Clear',danger:true})){await fetch(API+'/api/log/clear',{method:'POST'});LOG=[];renderLog();updateLive();toast('Queue log cleared','ok');}
 });
 document.getElementById('setResetAll').addEventListener('click',resetAllSettings);
 
@@ -5707,9 +5707,47 @@ async function acctApplyKey(){
   if (r && (r.ok || r.valid)){ m.style.color = 'var(--cyan)'; m.textContent = 'Unlocked: ' + String(r.tier||'pro').toUpperCase(); _g('acctKey').value=''; setTimeout(acctOpen, 350); }
   else { m.style.color = ''; m.textContent = (r && r.error) || 'Invalid key.'; }
 }
+// ---- native-feeling in-app modals (replace the WebView confirm/prompt boxes,
+// which render as a small off-center OS dialog -- the "feels like webview" tell) ----
+function _uiModal(opts){
+  return new Promise(res=>{
+    const isPrompt = opts.type==='prompt';
+    const ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;z-index:99000;display:flex;align-items:center;justify-content:center;background:rgba(6,6,12,.72);backdrop-filter:blur(4px)';
+    const box=document.createElement('div');
+    box.style.cssText='background:var(--bg-2,#14131c);border:1px solid var(--border-bright,#39374a);border-radius:14px;box-shadow:0 24px 70px rgba(0,0,0,.6);width:min(420px,92vw);padding:22px';
+    const h=document.createElement('div'); h.textContent=opts.title||(isPrompt?'Enter value':'Confirm');
+    h.style.cssText='font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--pink,#ff2f92);margin-bottom:10px';
+    const m=document.createElement('div'); m.textContent=opts.message||'';
+    m.style.cssText='font-size:15px;line-height:1.5;margin-bottom:16px;color:var(--text-dim,#cfc9de);font-family:Rajdhani,sans-serif';
+    box.appendChild(h); box.appendChild(m);
+    let inp=null;
+    if(isPrompt){
+      inp=document.createElement('input'); inp.type=opts.password?'password':'text';
+      if(opts.placeholder)inp.placeholder=opts.placeholder; if(opts.value)inp.value=opts.value;
+      inp.style.cssText='width:100%;box-sizing:border-box;background:var(--bg-0,#0a0a0f);border:1px solid var(--border,#2a2838);border-radius:8px;color:var(--text,#eee);padding:11px 13px;font-size:14px;margin-bottom:16px;outline:none';
+      box.appendChild(inp);
+    }
+    const row=document.createElement('div'); row.style.cssText='display:flex;gap:10px;justify-content:flex-end';
+    const cancel=document.createElement('button'); cancel.textContent=opts.cancelText||'Cancel';
+    cancel.style.cssText='background:transparent;border:1px solid var(--border,#2a2838);color:var(--text-dim,#cfc9de);border-radius:8px;padding:9px 16px;font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.1em;cursor:pointer';
+    const ok=document.createElement('button'); ok.textContent=opts.okText||'OK';
+    ok.style.cssText='border:1px solid '+(opts.danger?'#ff4d6d':'var(--cyan,#2ff0d4)')+';background:'+(opts.danger?'rgba(255,77,109,.14)':'rgba(47,240,212,.12)')+';color:'+(opts.danger?'#ff8199':'var(--cyan,#2ff0d4)')+';border-radius:8px;padding:9px 18px;font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.1em;font-weight:700;cursor:pointer';
+    row.appendChild(cancel); row.appendChild(ok); box.appendChild(row); ov.appendChild(box); document.body.appendChild(ov);
+    if(inp)setTimeout(()=>{try{inp.focus();}catch(e){}},30);
+    function key(e){ if(e.key==='Escape'){done(isPrompt?null:false);} else if(e.key==='Enter'){ok.click();} }
+    function done(v){ document.removeEventListener('keydown',key); try{document.body.removeChild(ov);}catch(e){} res(v); }
+    cancel.onclick=()=>done(isPrompt?null:false);
+    ok.onclick=()=>done(isPrompt?(inp?inp.value:''):true);
+    ov.addEventListener('mousedown',e=>{ if(e.target===ov)done(isPrompt?null:false); });
+    document.addEventListener('keydown',key);
+  });
+}
+function uiConfirm(message,opts){ opts=Object.assign({type:'confirm',message:message},opts||{}); return _uiModal(opts); }
+function uiPrompt(message,opts){ opts=Object.assign({type:'prompt',message:message},opts||{}); return _uiModal(opts); }
 async function acctChangePw(){
-  const o = prompt('Current password:'); if (o === null) return;
-  const n = prompt('New password (at least 8 characters):'); if (!n) return;
+  const o = await uiPrompt('Enter your current password:', {title:'Change password', password:true, okText:'Next'}); if (o === null) return;
+  const n = await uiPrompt('New password (at least 8 characters):', {title:'Change password', password:true, okText:'Change'}); if (!n) return;
   const r = await _postJ('/api/auth/password', {old:o, new:n});
   toast(r && r.ok ? 'Password changed.' : ((r && r.error) || 'Could not change password.'), r && r.ok ? 'ok' : 'err');
 }
