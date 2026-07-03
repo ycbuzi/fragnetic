@@ -1280,7 +1280,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "18.7"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "18.8"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -3968,6 +3968,8 @@ DEFAULT_SETTINGS = {
     "pingRefreshSeconds": 0,        # 0 = manual only (UI honors)
     "preferredRegion": "",          # bias the recommendation toward this region
     "maxPing": 120,                 # ping cap (mirrors the inline slider)
+    # --- onboarding ---
+    "welcomeDone": False,           # first-login 'Make it yours' wallpaper setup shown once (persisted so it never re-pops)
     # --- YOLO training data ---
     "autoHarvest": True,            # auto-import match recordings into the YOLO dataset (ADMIN-only at runtime)
     "harvestFolders": [],           # extra folders to watch (OBS output, etc.); clips/ is always included

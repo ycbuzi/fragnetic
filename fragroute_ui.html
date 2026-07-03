@@ -1057,6 +1057,7 @@
   .tier-badge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.05em;
     border:1px solid var(--border,#2a2a3a)}
   .tier-badge.t-free{color:var(--text-mute,#9aa)}
+.tier-badge.t-trial{color:#ffcf66;border-color:#ffcf66;box-shadow:0 0 8px rgba(255,207,102,.35)}
   .tier-badge.t-pro{color:var(--cyan);border-color:var(--cyan);box-shadow:0 0 10px var(--cyan-glow)}
   .tier-badge.t-admin{color:var(--pink);border-color:var(--pink);box-shadow:0 0 10px var(--pink-glow)}
   /* account modal */
@@ -3183,7 +3184,12 @@ function showWelcomeSetup(){
   box.querySelector('#welcomeDone').onclick=finish;
 }
 function maybeWelcome(){
-  try{ if(!SETTINGS || SETTINGS.welcomeDone) return; setTimeout(()=>{ try{showWelcomeSetup();}catch(e){} }, 450); }catch(e){}
+  try{
+    if(!window._SETTINGS_LOADED) return;               // wait for the persisted welcomeDone (avoid popping on the default)
+    if(!SETTINGS || SETTINGS.welcomeDone) return;
+    const g=document.getElementById('authGate'); if(g && g.style.display!=='none') return;   // only once logged in (gate hidden)
+    setTimeout(()=>{ try{ if(!SETTINGS.welcomeDone) showWelcomeSetup(); }catch(e){} }, 450);
+  }catch(e){}
 }
 function _wpSlug(n){return String(n||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');}
 function loadWeapons(force){
@@ -4105,6 +4111,8 @@ async function loadSettings(){
     if(j&&j.settings){Object.keys(j.settings).forEach(k=>{SETTINGS[k]=j.settings[k];});}
   }catch(e){}
   saveSettingsCache();
+  window._SETTINGS_LOADED=true;                        // real persisted values are now in SETTINGS
+  try{ if(typeof maybeWelcome==='function') maybeWelcome(); }catch(e){}   // new-user wallpaper setup (once, AFTER load)
 }
 function applySettings(){
   applyAppearance();                 // theme / compact / lite / maxPing
