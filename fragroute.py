@@ -7593,7 +7593,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(fragroute_llm.vision_status())
 
         if path == "/api/ai/vision/warm":
-            # background pre-load the vision model so the first Recognize isn't a cold start
+            # background pre-load the vision model so the first Recognize isn't a cold start.
+            # Paid feature -> don't warm a paid model (GPU/FPS cost) for a Free user.
+            if fragroute_license is not None and not fragroute_license.is_enabled("coach"):
+                return self._json({"ok": False, "error": "locked"}, 402)
             if fragroute_llm is not None:
                 try:
                     fragroute_llm.warm_vision()
