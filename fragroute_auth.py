@@ -148,7 +148,11 @@ def register(username, password, email="", license_key=""):
         rec["rsalt"] = base64.b64encode(rsalt).decode()
         rec["recovery"] = _hash(recovery, rsalt)
         if license_key:
-            info = L.verify_key(license_key)
+            # set_license ROUTES the key: a Lemon Squeezy key (what buyers get) is
+            # activated online; an owner FRG1 key is verified offline. Using verify_key
+            # here rejected real LS keys ("not a FRAGROUTE license key") -- the bug that
+            # stopped paying customers from registering with the key they were emailed.
+            info = L.set_license(license_key)
             if not info.get("valid"):
                 return {"ok": False, "error": "license: %s" % info.get("error", "invalid")}
             rec["license"] = license_key.strip()

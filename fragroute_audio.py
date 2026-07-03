@@ -21,7 +21,9 @@ import time
 import wave
 from pathlib import Path
 
-APP_AUDIO_BUILD = "audio-1"
+APP_AUDIO_BUILD = "audio-2"   # audio-2: skip virtual/streaming sinks (Steam/NVIDIA)
+                              # that yield silent loopbacks; prefer the real output +
+                              # optional manual output picker (fixes no-sound clips)
 
 try:
     import pyaudiowpatch as _pa
@@ -41,31 +43,130 @@ def available():
     return _HAVE
 
 
-def _find_loopback(p):
-    """The loopback device for the current DEFAULT output. Falls back to any
-    loopback device if the default can't be matched by name."""
-    try:
-        wasapi = p.get_host_api_info_by_type(_pa.paWASAPI)
-        dflt = p.get_device_info_by_index(wasapi["defaultOutputDevice"])
-        name = dflt.get("name", "")
-    except Exception:
-        name = ""
-    # 1) exact: a loopback device whose name contains the default output's name
-    if name:
-        for i in range(p.get_device_count()):
-            try:
-                d = p.get_device_info_by_index(i)
-            except Exception:
-                continue
-            if d.get("isLoopbackDevice") and name.split(" (")[0] in d.get("name", ""):
-                return d
-    # 2) any loopback device
+# Virtual / streaming render endpoints that are frequently the Windows "default
+# output" but carry NO real game audio -- a WASAPI loopback of one of these yields
+# ZERO frames, so clips come out silent (or with no audio track at all). We skip
+# them whenever a real hardware endpoint exists. (Root cause of the "recorded
+# videos have no sound" bug: the default output resolved to "Steam Streaming
+# Microphone", a dead virtual sink.)
+_VIRTUAL_MARKERS = (
+    "steam streaming", "nvidia broadcast", "vb-audio", "vb audio", "voicemeeter",
+    "cable output", "cable input", "cable-a", "cable-b", "virtual", "vaio",
+    "rtx voice", "synchronous audio", "remote audio", "wave link stream",
+)
+
+# Optional user override: a substring of the OUTPUT device name to record. When
+# set (via set_preferred_output), it wins over auto-selection -- the reliable
+# escape hatch, mirroring the mic selector.
+PREFERRED_OUTPUT = None
+
+
+def set_preferred_output(name):
+    """Pin the output device to record (substring match), or clear with '' / None."""
+    global PREFERRED_OUTPUT
+    PREFERRED_OUTPUT = (name or "").strip() or None
+    return PREFERRED_OUTPUT
+
+
+def _is_virtual(name):
+    n = (name or "").lower()
+    return any(m in n for m in _VIRTUAL_MARKERS)
+
+
+def _loopback_devices(p):
+    """Every WASAPI loopback device on the system (real + virtual)."""
+    out = []
     try:
         for d in p.get_loopback_device_info_generator():
-            return d
+            out.append(d)
     except Exception:
         pass
-    return None
+    if not out:                       # manual fallback scan
+        try:
+            for i in range(p.get_device_count()):
+                try:
+                    d = p.get_device_info_by_index(i)
+                except Exception:
+                    continue
+                if d.get("isLoopbackDevice"):
+                    out.append(d)
+        except Exception:
+            pass
+    return out
+
+
+def _default_render_name(p):
+    try:
+        wasapi = p.get_host_api_info_by_type(_pa.paWASAPI)
+        return p.get_device_info_by_index(wasapi["defaultOutputDevice"]).get("name", "")
+    except Exception:
+        return ""
+
+
+def _find_loopback(p):
+    """Pick the loopback device to record, in priority order:
+      1) an explicit user override (PREFERRED_OUTPUT substring),
+      2) the REAL default render endpoint's loopback -- unless it's a virtual sink,
+      3) a non-virtual loopback whose name matches the default output,
+      4) the first NON-virtual loopback (skips Steam/NVIDIA virtual devices),
+      5) last resort: the default (even if virtual) / the first device found.
+    This ordering is what keeps clips from coming out silent when a virtual
+    streaming device is the Windows default output."""
+    cands = _loopback_devices(p)
+    if not cands:
+        return None
+    # 1) explicit user override
+    if PREFERRED_OUTPUT:
+        pref = PREFERRED_OUTPUT.lower()
+        for d in cands:
+            if pref in d.get("name", "").lower():
+                return d
+    # 2) the actual default render endpoint's loopback (pyaudiowpatch helper),
+    #    but only if it's a real device -- never a dead virtual sink.
+    dfl = None
+    try:
+        dfl = p.get_default_wasapi_loopback()
+    except Exception:
+        dfl = None
+    if dfl and not _is_virtual(dfl.get("name", "")):
+        return dfl
+    # 3) match the host-api default output name among non-virtual candidates
+    name = _default_render_name(p)
+    if name:
+        base = name.split(" (")[0]
+        for d in cands:
+            if not _is_virtual(d.get("name", "")) and base and base in d.get("name", ""):
+                return d
+    # 4) first non-virtual loopback
+    for d in cands:
+        if not _is_virtual(d.get("name", "")):
+            return d
+    # 5) nothing clean -- take the default (even virtual) or the first device
+    return dfl or cands[0]
+
+
+def list_outputs():
+    """All loopback (output) device names, for a UI picker. Marks the auto-pick and
+    flags virtual devices so the user can avoid the silent ones."""
+    if not _HAVE:
+        return {"have": False, "items": [], "auto": None}
+    p = _pa.PyAudio()
+    try:
+        cands = _loopback_devices(p)
+        auto = _find_loopback(p)
+        auto_name = auto.get("name", "") if auto else None
+        items = []
+        for d in cands:
+            nm = d.get("name", "")
+            items.append({"name": nm, "virtual": _is_virtual(nm),
+                          "auto": (nm == auto_name)})
+        return {"have": True, "items": items, "auto": auto_name,
+                "preferred": PREFERRED_OUTPUT}
+    finally:
+        try:
+            p.terminate()
+        except Exception:
+            pass
 
 
 def default_output_name():

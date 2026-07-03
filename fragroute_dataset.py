@@ -601,4 +601,5 @@ def status():
     return {"build": APP_DATASET_BUILD, "images": len(imgs),
             "drafted": len(anns), "reviewed": reviewed,
             "classes": len(taxonomy()), "ytdlp": bool(_find_ytdlp()),
+            "imagesDir": str(_images_dir()),   # so the UI can show WHERE it's reading
             "note": "offline training-data pipeline; review labels before export"}

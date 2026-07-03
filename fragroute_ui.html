@@ -5064,12 +5064,20 @@ async function lbInit(){
 async function lbReloadFrames(){
   const j=await (await fetch(API+'/api/train/frames')).json();
   _lb.frames=j.frames||[];
+  if(!_lb.frames.length){ try{ _lb.stat=await (await fetch(API+'/api/train/status')).json(); }catch(e){ _lb.stat=null; } }
   const done=_lb.frames.filter(f=>f.reviewed).length;
   const pe=document.getElementById('lbProgress'); if(pe)pe.textContent=done+' / '+_lb.frames.length+' reviewed';
   lbStrip();
 }
 function lbStrip(){
   const s=document.getElementById('lbStrip'); if(!s)return;
+  if(!_lb.frames.length){
+    const dir=(_lb.stat&&_lb.stat.imagesDir)||'the dataset folder';
+    s.innerHTML='<div class="an-empty" style="padding:14px;line-height:1.5">No training frames to review yet.<br>'
+      +'Record a match under <b>Record Gameplay</b>, then click <b>Auto-import from recordings</b> — captured frames land here to label.<br>'
+      +'<span style="opacity:.6;font-size:11px">Reading from: '+_esc(dir)+'</span></div>';
+    return;
+  }
   s.innerHTML=_lb.frames.map((f,i)=>`<div class="lbt${i===_lb.idx?' cur':''}${f.reviewed?' done':''}" data-i="${i}" style="background-image:url('${API}/api/train/frame?name=${encodeURIComponent(f.name)}')" title="${f.name}${f.reviewed?' ✓':''}"></div>`).join('');
   s.querySelectorAll('.lbt').forEach(t=>t.addEventListener('click',()=>lbLoad(+t.dataset.i)));
 }
@@ -5555,7 +5563,7 @@ async function aifSaveOpt(key,val){
       <input id="authCode" class="auth-in" placeholder="Recovery code" data-i18n-ph="Recovery code" style="display:none" spellcheck="false">
       <input id="authPass" class="auth-in" type="password" placeholder="Password" autocomplete="current-password">
       <input id="authEmail" class="auth-in" placeholder="Email (optional)" data-i18n-ph="Email (optional)" style="display:none" spellcheck="false">
-      <input id="authLicense" class="auth-in" placeholder="License key (optional)" data-i18n-ph="License key (optional)" style="display:none" spellcheck="false">
+      <input id="authLicense" class="auth-in" placeholder="Pro license key (unlocks Pro)" data-i18n-ph="Pro license key (unlocks Pro)" style="display:none" spellcheck="false">
       <button id="authSubmit" class="auth-btn">Sign in</button>
       <div class="auth-toggle"><span id="authToggleTxt">New here?</span><a id="authToggle">Create an account</a></div>
       <div class="auth-toggle" id="authForgotRow"><a id="authForgot" data-i18n="Forgot password?">Forgot password?</a></div>
