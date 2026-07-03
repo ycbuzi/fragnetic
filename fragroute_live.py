@@ -53,8 +53,14 @@ def mode_tier(mode_text):
     return "blocked"
 
 
-def allowed(mode_text, optin_enabled):
-    """Should the live detector run for this mode? Returns (bool, tier)."""
+def allowed(mode_text, optin_enabled, admin=False):
+    """Should the live detector run for this mode? Returns (bool, tier).
+    admin=True (the OWNER, on the owner's own PC) OVERRIDES the mode gate and enables
+    live detection in ANY mode, including real matches. This is an owner-only dev
+    capability kept behind admin until a provably ban-safe live approach exists -- it
+    is NEVER true for customers (admin is machine-locked to the owner's PC)."""
+    if admin:
+        return True, "admin"
     tier = mode_tier(mode_text)
     if tier == "auto":
         return True, tier
@@ -80,7 +86,7 @@ def status():
             "note": "live detector runs ONLY in bot/solo practice modes"}
 
 
-def _loop(get_frame, get_mode, optin_getter, callout, interval, conf_thr):
+def _loop(get_frame, get_mode, optin_getter, callout, interval, conf_thr, admin_getter=None):
     """Detection loop. RE-CHECKS the mode every iteration and self-stops the
     moment it is no longer allowed -- this is the safety guarantee."""
     try:
@@ -98,7 +104,7 @@ def _loop(get_frame, get_mode, optin_getter, callout, interval, conf_thr):
         # ---- SAFETY GATE: re-evaluate the live mode every loop ----
         try:
             mode = get_mode()
-            ok, tier = allowed(mode, bool(optin_getter()))
+            ok, tier = allowed(mode, bool(optin_getter()), admin=bool(admin_getter and admin_getter()))
         except Exception:
             mode, ok, tier = None, False, "blocked"
         _LIVE["mode"], _LIVE["tier"] = mode, tier
@@ -124,7 +130,7 @@ def _loop(get_frame, get_mode, optin_getter, callout, interval, conf_thr):
     _LIVE["running"] = False
 
 
-def start(get_frame, get_mode, optin_getter, callout=None, interval=0.25, conf_thr=0.3):
+def start(get_frame, get_mode, optin_getter, callout=None, interval=0.25, conf_thr=0.3, admin_getter=None):
     """Start the live loop if the CURRENT mode is allowed. Returns a status dict.
     get_frame()  -> path to a freshly captured frame (or None)
     get_mode()   -> current mode string from the engine
@@ -135,7 +141,7 @@ def start(get_frame, get_mode, optin_getter, callout=None, interval=0.25, conf_t
             return {"ok": True, "already": True, **status()}
         try:
             mode = get_mode()
-            ok, tier = allowed(mode, bool(optin_getter()))
+            ok, tier = allowed(mode, bool(optin_getter()), admin=bool(admin_getter and admin_getter()))
         except Exception:
             mode, ok, tier = None, False, "blocked"
         _LIVE["mode"], _LIVE["tier"] = mode, tier
@@ -145,7 +151,7 @@ def start(get_frame, get_mode, optin_getter, callout=None, interval=0.25, conf_t
         _LIVE["running"] = True
         _LIVE["stopReason"] = None
         th = threading.Thread(target=_loop, args=(get_frame, get_mode, optin_getter,
-                                                  callout, interval, conf_thr), daemon=True)
+                                                  callout, interval, conf_thr, admin_getter), daemon=True)
         _LIVE["thread"] = th
         th.start()
         return {"ok": True, "started": True, **status()}

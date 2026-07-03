@@ -194,7 +194,16 @@ def _build_capture_cmd(ff, ring_dir, fps, bitrate, encoder, gpu, seg_seconds, ri
     cmd += ["-filter_complex", "ddagrab=output_idx=0:framerate=%d%s" % (int(fps), "[v]" if audio_device else "")]
     if audio_device:
         cmd += ["-map", "[v]", "-map", "0:a"]
-    cmd += ["-c:v", encoder, "-preset", "p5", "-tune", "hq", "-b:v", str(bitrate)]
+    cmd += ["-c:v", encoder, "-preset", "p5", "-tune", "hq", "-b:v", str(bitrate),
+            # Force standard SDR BT.709 limited-range color tags. ddagrab's desktop
+            # surface carries sRGB / odd-primary (bt470bg) metadata that NVENC
+            # propagates, so players apply the wrong gamma/primaries and the clip looks
+            # washed-out / over-bright (the 'shine/glare'). Metadata only -- no filter,
+            # so ZERO FPS cost (keeps the capture game-friendly). NOTE: if Windows HDR is
+            # ON, that's a separate cause -- toggle HDR off for recording, or we add an
+            # opt-in tonemap (which does cost CPU).
+            "-color_range", "tv", "-colorspace", "bt709",
+            "-color_primaries", "bt709", "-color_trc", "bt709"]
     if gpu is not None:
         cmd += ["-gpu", str(int(gpu))]          # only if explicitly pinned (default None)
     if audio_device:

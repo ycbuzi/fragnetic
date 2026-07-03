@@ -1047,8 +1047,16 @@ def _build_ai_ctx():
             return {"ok": False, "message": "detector not ready -- add a YOLOX .onnx to "
                     "the 'yolo' folder (a FragPunk-trained one detects Lancers/weapons)."}
         optin = lambda: bool(get_setting("liveDetectOptIn", False))
-        r = fragroute_live.start(_live_frame, _live_mode_str, optin)
+        # OWNER-ONLY override: on the owner's admin PC, allow live detection in ANY mode
+        # (real matches included) as a dev capability, until a provably ban-safe live
+        # approach exists. Customers stay strictly practice-gated (admin is machine-locked).
+        admin = lambda: bool(fragroute_license is not None
+                             and (fragroute_license.entitlement() or {}).get("tier") == "admin")
+        r = fragroute_live.start(_live_frame, _live_mode_str, optin, admin_getter=admin)
         if r.get("ok") and (r.get("started") or r.get("already")):
+            if r.get("tier") == "admin":
+                return {"ok": True, "message": "Live detector ON (ADMIN override — runs in ANY mode, "
+                        "including real matches). Owner-only."}
             return {"ok": True, "message": "Live practice detector ON (mode: %s / %s). "
                     "It self-stops if the mode changes to real PvP."
                     % (r.get("mode") or "?", r.get("tier"))}
@@ -1323,7 +1331,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "19.0"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "19.1"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -2658,6 +2666,10 @@ _WEB_PORTS = {"80", "443", "8080", "8443"}
 _CONN_FIRST = {}
 _CONN_FIRST_LOCK = threading.Lock()
 _MATCH_MIN_AGE_S = 8
+_MATCH_MIN_AGE_UDP_S = 20   # UDP-only match must persist MUCH longer than a TCP one --
+                            # transient lobby/party-voice/matchmaking UDP must never flap a
+                            # phantom match. Real gameplay UDP lasts the whole match, so a
+                            # 20s gate costs nothing real but kills the 'lobby = match' bug.
 _INFRA_LEARN_S = 18      # established this long while in the menu => infrastructure
 # Endpoints (ip:port) learned to be INFRASTRUCTURE, not match servers. FragPunk
 # keeps MULTIPLE persistent connections -- the lobby/matchmaking gateway AND a
@@ -2764,7 +2776,7 @@ def _classify_game(conns):
     # FALLBACK: no TCP match server, but a persistent UDP GAMEPLAY server means you're
     # in a match (the TCP session may be brief / blocked). Report it so the live host
     # shows for non-VPN games too, instead of a blank "in menu".
-    udp_others = [hp for hp in udp_game if age(hp) >= _MATCH_MIN_AGE_S]
+    udp_others = [hp for hp in udp_game if age(hp) >= _MATCH_MIN_AGE_UDP_S]
     if udp_others:
         return "match", max(udp_others, key=age), lobby
     return "menu", None, lobby
@@ -7623,6 +7635,24 @@ class Handler(BaseHTTPRequestHandler):
             q = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
             describe = (q.get("describe") or ["0"])[0] in ("1", "true", "yes")
             return self._json(screen_read(describe=describe))
+
+        if path == "/api/game/debug":
+            # Diagnostic for the 'wrong server' / 'lobby shows as match' bugs: dumps the
+            # game's raw connections and how each classifies. Hit this WHILE in the lobby
+            # to see exactly which host:port is (mis)treated as the match server.
+            try:
+                pids = _find_game_pids()
+                conns = _game_connections(pids) if pids else []
+                phase, match_srv, lobby = _classify_game(list(conns))
+                return self._json({
+                    "running": bool(pids), "phase": phase,
+                    "matchServer": ("%s:%s" % match_srv) if match_srv else None,
+                    "lobby": ("%s:%s" % lobby) if lobby else None,
+                    "connections": [{"host": h, "port": p, "proto": pr, "state": st}
+                                    for (h, p, pr, st) in conns],
+                })
+            except Exception as e:
+                return self._json({"ok": False, "error": str(e)}, 500)
 
         if path == "/api/ai/map/file":
             q = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
