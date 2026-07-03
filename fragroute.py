@@ -1333,6 +1333,10 @@ def converse_stop():
 
 APP_BUILD = "19.2"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
+# Lemon Squeezy checkout link (the app's Buy/Unlock buttons open this in the system
+# browser). Get it from your LS dashboard -> Products -> "Share" / checkout link.
+# Leave "" and the Unlock button falls back to the Account modal (paste-a-key).
+BUY_URL = ""   # e.g. "https://YOURSTORE.lemonsqueezy.com/buy/XXXXXXXX-XXXX-..."
 
 # ===========================================================================
 # DIAGNOSTICS  -- so "the app wasn't working" stops being invisible.
@@ -7635,6 +7639,18 @@ class Handler(BaseHTTPRequestHandler):
             q = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
             describe = (q.get("describe") or ["0"])[0] in ("1", "true", "yes")
             return self._json(screen_read(describe=describe))
+
+        if path == "/api/buy":
+            # Open the Lemon Squeezy checkout in the user's SYSTEM browser (safest place
+            # for payment). No arbitrary-URL param -- only the configured BUY_URL opens.
+            if not BUY_URL:
+                return self._json({"ok": False, "configured": False})
+            try:
+                import webbrowser
+                webbrowser.open(BUY_URL)
+            except Exception:
+                pass
+            return self._json({"ok": True, "configured": True, "url": BUY_URL})
 
         if path == "/api/game/debug":
             # Diagnostic for the 'wrong server' / 'lobby shows as match' bugs: dumps the

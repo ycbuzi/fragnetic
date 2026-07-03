@@ -1076,6 +1076,18 @@
   /* PRO badge on ::before so the active-tab accent underline (::after) can't erase it */
   .feat-locked::before{content:'PRO';position:absolute;top:3px;right:4px;font-size:8px;font-weight:800;color:var(--cyan);z-index:2;
     background:rgba(0,0,0,.55);border:1px solid var(--cyan);border-radius:4px;padding:0 3px;letter-spacing:.05em}
+  /* locked-feature upsell overlay (Free/Trial) */
+  .pane-lock{position:absolute;inset:0;z-index:40;display:flex;align-items:flex-start;justify-content:center;padding-top:56px;background:rgba(8,7,12,.84);backdrop-filter:blur(3px)}
+  .pane-lock-card{max-width:430px;text-align:center;background:var(--bg-2,#14131c);border:1px solid var(--cyan,#2ff0d4);border-radius:16px;box-shadow:0 24px 70px rgba(0,0,0,.6);padding:26px 28px;font-family:'Rajdhani',sans-serif}
+  .pane-lock-ico{font-size:30px;margin-bottom:8px}
+  .pane-lock-title{font-size:19px;font-weight:700;margin-bottom:6px}
+  .pane-lock-sub{font-size:14px;color:var(--text-dim,#cfc9de);line-height:1.5;margin-bottom:14px}
+  .pane-lock-price{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:800;color:var(--cyan,#2ff0d4);margin-bottom:16px}
+  .pane-lock-price span{font-size:12px;opacity:.7}
+  .pane-lock-btns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+  .pane-lock-btn{border:1px solid var(--cyan,#2ff0d4);background:rgba(47,240,212,.14);color:var(--cyan,#2ff0d4);border-radius:9px;padding:11px 22px;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;letter-spacing:.06em;cursor:pointer}
+  .pane-lock-btn.ghost{border-color:var(--border,#2a2838);background:transparent;color:var(--text-dim,#cfc9de)}
+  .pane-lock-foot{margin-top:12px;font-size:11px;color:var(--text-mute,#9aa)}
   /* hardware / compatibility panel */
   .hw-specs{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 6px}
   .hw-chip{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:7px;padding:6px 10px;font-size:12px;color:var(--text)}
@@ -2927,12 +2939,16 @@ function switchTab(name){
   if(changing)fxTabSwitch(name);   // screen-tear + glitch-in transition
   // jumping to News? make sure it's loaded (in case the first pull failed)
   if(name==='news'&&!NEWS_OK)loadNews(true);
-  if(name==='coach' && typeof aiLlmStatus==='function'){ aiLlmStatus(); if(typeof apLoad==='function')apLoad(); if(typeof aiLoadMics==='function')aiLoadMics(); }
-  if(name==='footage' && typeof aifRefresh==='function'){ aifRefresh(); aifLoadOpts&&aifLoadOpts(); }
-  if(name==='create' && typeof igStatus==='function'){ igStatus(); igLoad&&igLoad(); }
-  if(name==='vision' && typeof mvLoad==='function'){ mvLoad(); fetch(API+'/api/ai/vision/warm').catch(()=>{}); }  // pre-load the model so Recognize is fast
+  // Don't warm paid models for a Free/Trial user who can't use them (protects FPS).
+  const _paneLocked=(typeof SUBTAB_FEAT!=='undefined' && SUBTAB_FEAT[name] && typeof featOn==='function' && !featOn(SUBTAB_FEAT[name]));
+  if(!_paneLocked){
+    if(name==='coach' && typeof aiLlmStatus==='function'){ aiLlmStatus(); if(typeof apLoad==='function')apLoad(); if(typeof aiLoadMics==='function')aiLoadMics(); }
+    if(name==='footage' && typeof aifRefresh==='function'){ aifRefresh(); aifLoadOpts&&aifLoadOpts(); }
+    if(name==='create' && typeof igStatus==='function'){ igStatus(); igLoad&&igLoad(); }
+    if(name==='vision' && typeof mvLoad==='function'){ mvLoad(); fetch(API+'/api/ai/vision/warm').catch(()=>{}); }  // pre-load the model so Recognize is fast
+    if(name==='video' && typeof vidInit==='function')vidInit();
+  }
   if(name==='label' && typeof lbInit==='function')lbInit();
-  if(name==='video' && typeof vidInit==='function')vidInit();
   if(name==='setup' && typeof setupLoad==='function')setupLoad();
   if(name==='routing')refreshRank();   // rank now lives at the top of this tab
   if(name==='status'){ refreshGameInfo(); refreshInsights(); renderSession(); renderStatusTab(); }
@@ -2950,6 +2966,35 @@ function switchTab(name){
   }
   // back to the top so a switched-in pane always starts at its header
   try{window.scrollTo(0,0);}catch(e){}
+  try{applyPaneLock(name);}catch(e){}   // Free/Trial: overlay a Pro upsell on a locked feature's pane
+}
+// ---- locked-feature upsell (Free/Trial see 'Unlock with Pro', not a dead UI) ----
+const _PANE_LABELS={coach:'The AI Coach',vision:'Vision review',footage:'Gameplay recording',create:'Image generation',video:'The video editor'};
+function applyPaneLock(name){
+  document.querySelectorAll('.pane-lock').forEach(e=>e.remove());
+  const feat=(typeof SUBTAB_FEAT!=='undefined')?SUBTAB_FEAT[name]:null;
+  if(!feat || (typeof featOn==='function' && featOn(feat))) return;   // unlocked -> nothing to do
+  const pane=document.querySelector('.tab-pane[data-pane="'+name+'"]'); if(!pane) return;
+  pane.style.position='relative';
+  const label=_PANE_LABELS[name]||'This';
+  const ov=document.createElement('div'); ov.className='pane-lock';
+  ov.innerHTML='<div class="pane-lock-card">'
+    +'<div class="pane-lock-ico">🔒</div>'
+    +'<div class="pane-lock-title">'+label+' is a <b>Pro</b> feature</div>'
+    +'<div class="pane-lock-sub">Unlock the AI coach, gameplay recording, image generation and video tools — all local, on your PC.</div>'
+    +'<div class="pane-lock-price">$5.99<span>/mo</span> · or $49/yr</div>'
+    +'<div class="pane-lock-btns"><button class="pane-lock-btn" id="paneUnlock">Unlock with Pro</button></div>'
+    +'<div class="pane-lock-foot">Have a key? Paste it in Account.</div></div>';
+  pane.appendChild(ov);
+  const u=ov.querySelector('#paneUnlock'); if(u)u.onclick=()=>{ openBuy(); };
+}
+// Open the Lemon Squeezy checkout in the system browser (set BUY_URL in the engine).
+// Falls back to the Account modal (paste-a-key) until the checkout URL is configured.
+function openBuy(){
+  fetch(API+'/api/buy').then(r=>r.json()).then(d=>{
+    if(d && d.configured){ toast('Opening secure checkout in your browser…','ok'); }
+    else { if(typeof acctOpen==='function')acctOpen(); toast('Add your Pro license key in Account (checkout link not set yet).','warn'); }
+  }).catch(()=>{ if(typeof acctOpen==='function')acctOpen(); });
 }
 
 // ====================== LANCER + WEAPON CATALOGS ======================
