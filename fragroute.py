@@ -692,6 +692,47 @@ def _live_mode_str():
     return " | ".join(parts)
 
 
+def screen_read(describe=True):
+    """UNIFIED live read: one call that grabs the current frame, runs the YOLO
+    detector AND (optionally) a one-line vision description, and fuses them into a
+    single grounded summary. This is the glue that makes the coach's chat + voice +
+    LLM + YOLO work as ONE -- the model can 'look' and answer grounded in what the
+    game is actually showing, instead of YOLO and vision living in separate silos.
+    Read-only, uses the rolling buffer while recording (never a 2nd ddagrab)."""
+    if fragroute_capture is None:
+        return {"ok": False, "message": "capture unavailable"}
+    shot = Path(tempfile.gettempdir()) / "fragnetic_screen.png"
+    try:
+        if not fragroute_capture.capture_screenshot(str(shot)):
+            return {"ok": False, "message": "couldn't grab the screen -- FragPunk must be borderless or windowed"}
+    except Exception as e:
+        return {"ok": False, "message": "screen grab failed: %s" % e}
+    dets = []
+    if fragroute_yolo is not None and fragroute_yolo.available():
+        try:
+            dets = fragroute_yolo.detect_image(str(shot), conf_thr=0.35) or []
+        except Exception:
+            dets = []
+    counts = collections.Counter(d.get("label") for d in dets if d.get("label"))
+    det_summary = ", ".join("%dx %s" % (n, l) for l, n in counts.most_common(8)) or "nothing the detector recognizes yet"
+    out = {"ok": True, "count": len(dets), "detectorSummary": det_summary,
+           "detections": [{"label": d.get("label"),
+                           "conf": round(float(d.get("conf", d.get("score", 0)) or 0), 2)} for d in dets[:20]],
+           "message": "On screen: " + det_summary}
+    if describe and fragroute_llm is not None:
+        try:
+            prompt = ("This is a FragPunk gameplay frame. In ONE short sentence give the player's "
+                      "situation and the single most useful tip. The object detector currently sees: "
+                      + det_summary + ".")
+            txt = fragroute_llm.chat_vision(prompt, str(shot), max_tokens=80, maxdim=512)
+            if txt:
+                out["vision"] = txt
+                out["message"] = txt + (" (detector: %s)" % det_summary if dets else "")
+        except Exception:
+            pass
+    return out
+
+
 def _build_ai_ctx():
     """Assemble the coach context (data accessors + LLM + agentic action executors).
     Shared by the chat endpoint AND voice commands so both have identical powers."""
@@ -1023,6 +1064,8 @@ def _build_ai_ctx():
     acts["stop_live"] = _live_stop
     acts["recognize"] = lambda: (lambda r: {"ok": r.get("ok"), "message": r.get("reply")})(recognize_screen())
     acts["capture_map"] = lambda: (lambda r: {"ok": r.get("ok"), "message": r.get("reply")})(capture_map())
+    acts["look"] = lambda: screen_read(describe=True)   # UNIFY: coach looks at the live screen (YOLO + vision fused)
+    ctx["screen_read"] = screen_read
     ctx["actions"] = acts
     return ctx
 
@@ -1280,7 +1323,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "18.9"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "19.0"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -7573,6 +7616,13 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/ai/maps":
             return self._json(_maps_store())
+
+        if path == "/api/ai/screen":
+            # UNIFIED live read (detector + optional vision). ?describe=1 adds the ~10s
+            # vision line; default is the fast detector-only read (safe to poll).
+            q = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+            describe = (q.get("describe") or ["0"])[0] in ("1", "true", "yes")
+            return self._json(screen_read(describe=describe))
 
         if path == "/api/ai/map/file":
             q = urllib.parse.parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")

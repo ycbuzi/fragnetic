@@ -698,6 +698,10 @@ AGENT_ACTIONS = [
     {"key": "capture_map", "desc": "capture and analyze the current map area",
      "patterns": [r"\b(capture|analy[sz]e|read|scan|study)\b.*\b(map|this area|this spot|angles?)\b",
                   r"\bwhat map (is this|am i on)\b", r"\bcapture (the )?map\b"]},
+    {"key": "look", "desc": "look at your live screen (detector + vision fused) and coach you on it",
+     "patterns": [r"\b(look at|watch|analy[sz]e|read)\b.*\b(my )?(gameplay|game|match|situation|the round|what'?s? happening)\b",
+                  r"\bcoach me (now|live|right now|on this)\b",
+                  r"\bwhat should i do( now| here)?\b"]},
 ]
 for _a in AGENT_ACTIONS:
     _a["patterns"] = [re.compile(p, re.I) for p in _a["patterns"]]
