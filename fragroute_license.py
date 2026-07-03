@@ -48,6 +48,12 @@ FEATURES = {
 # always-on free core (shown so the UI can label them)
 FREE_FEATURES = ["queue", "vpn", "overlay", "locker", "stats", "setup", "cards"]
 
+# The OWNER's machine gets admin automatically -- no key needed -- but ONLY on this
+# exact PC. machine_id() is derived from this box's MAC + hostname; a customer cannot
+# reproduce it, so shipping this constant in the build is safe (it unlocks nothing on
+# their hardware). This is how "admin is locked to my PC only" is enforced.
+OWNER_MACHINE_IDS = {"a4b4d266c63e7992"}
+
 TRIAL_DAYS = 14
 KEY_PREFIX = "FRG1"
 
@@ -412,6 +418,12 @@ def entitlement():
     if trial_active:
         best = "trial"
         sources.append("trial")
+
+    # Owner's own PC -> admin, no key required (safe: tied to this machine's id).
+    if machine_id() in OWNER_MACHINE_IDS and rank(best) < rank("admin"):
+        best = "admin"
+        holder = holder or "Owner (this PC)"
+        sources.append("owner-machine")
 
     feats = {}
     for feat, need in FEATURES.items():

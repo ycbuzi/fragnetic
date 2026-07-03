@@ -356,11 +356,18 @@ def wav_duration(path=None):
         return 0.0
 
 
-def snapshot(out_path, tail_seconds=None):
+def started_at():
+    """Epoch when the capture loop began writing samples (0 if not recording). Used
+    to align audio against the video, which starts a moment later."""
+    return float(_STATE.get("started", 0) or 0)
+
+
+def snapshot(out_path, tail_seconds=None, head_seconds=0):
     """Write a proper WAV to out_path from the current capture, reading RAW PCM by
     byte size (so it works whether the source WAV is finalized OR still growing).
-    tail_seconds keeps only the last N seconds (for a rolling-clip save); None keeps
-    everything. Returns the written path, or None on failure/empty."""
+    tail_seconds keeps only the last N seconds (rolling-clip save); None keeps all.
+    head_seconds DROPS the first N seconds -- used to compensate the audio-vs-video
+    startup lead so full-match clips stay in sync. Returns the path, or None."""
     src = _STATE.get("wav")
     sr = int(_STATE.get("sr") or 48000) or 48000
     ch = int(_STATE.get("ch") or 2) or 2
@@ -378,6 +385,11 @@ def snapshot(out_path, tail_seconds=None):
         return None
     # align to a full frame
     pcm = pcm[: len(pcm) - (len(pcm) % frame_bytes)]
+    if head_seconds and head_seconds > 0:
+        skip = int(head_seconds * sr) * frame_bytes
+        if 0 < skip < len(pcm):
+            pcm = pcm[skip:]
+            pcm = pcm[len(pcm) % frame_bytes:]      # re-align after head cut
     if tail_seconds:
         keep = int(tail_seconds) * sr * frame_bytes
         if keep and len(pcm) > keep:

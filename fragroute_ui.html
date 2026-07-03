@@ -1658,7 +1658,7 @@
   <!-- ===================== SETUP PANE ===================== -->
   <div class="tab-pane" data-pane="setup">
     <div class="section-title"><span>🧩 Setup &amp; Readiness</span>
-      <div class="right"><span id="setReady" class="ai-badge">—</span><button class="mini-btn" id="setRefresh">↻</button></div>
+      <div class="right"><button class="mini-btn" id="setTour" title="Replay the guided app tour">🧭 Tour</button><span id="setReady" class="ai-badge">—</span><button class="mini-btn" id="setRefresh">↻</button></div>
     </div>
     <div class="ai-note">What's ready on this PC. Green = good · amber = optional piece missing (with the fix). Missing pieces just disable their own feature.</div>
 
@@ -3168,6 +3168,7 @@ function showWelcomeSetup(){
     <div id="welcomeGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:18px"></div>
     <div style="display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap">
       <button id="welcomeUpload" style="background:transparent;border:1px solid var(--border,#2a2838);color:var(--text-dim,#cfc9de);border-radius:8px;padding:10px 16px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.08em;cursor:pointer">Upload your own…</button>
+      <button id="welcomeTour" style="background:transparent;border:1px solid var(--cyan,#2ff0d4);color:var(--cyan,#2ff0d4);border-radius:8px;padding:10px 16px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.08em;cursor:pointer">Take a tour</button>
       <button id="welcomeDone" style="border:1px solid var(--cyan,#2ff0d4);background:rgba(47,240,212,.12);color:var(--cyan,#2ff0d4);border-radius:8px;padding:10px 22px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.08em;font-weight:700;cursor:pointer">Done</button>
     </div>`;
   ov.appendChild(box);document.body.appendChild(ov);
@@ -3181,16 +3182,61 @@ function showWelcomeSetup(){
   });
   box.querySelector('#welcomeUpload').onclick=()=>{ try{_wpPickImage();}catch(e){} };
   function finish(){ try{document.body.removeChild(ov);}catch(e){} SETTINGS.welcomeDone=true; try{saveSetting('welcomeDone',true);}catch(e){} }
+  const _wt=box.querySelector('#welcomeTour'); if(_wt)_wt.onclick=()=>{ finish(); try{startTour();}catch(e){} };
   box.querySelector('#welcomeDone').onclick=finish;
 }
-function maybeWelcome(){
+async function maybeWelcome(){
   try{
     if(!window._SETTINGS_LOADED) return;               // wait for the persisted welcomeDone (avoid popping on the default)
     if(!SETTINGS || SETTINGS.welcomeDone) return;
     const g=document.getElementById('authGate'); if(g && g.style.display!=='none') return;   // only once logged in (gate hidden)
+    // If the user has ALREADY set a wallpaper, they've customized before -> mark done and
+    // never show the onboarding (covers existing users from before this feature existed).
+    let hasWp = (typeof _wpSlotFor==='function' && !!_wpSlotFor());
+    if(!hasWp){
+      try{ const d=await (await fetch(API+'/api/icons')).json();
+           if(d&&d.slots){ _ICON_SLOTS=new Set(d.slots); hasWp=(d.slots||[]).some(s=>String(s).indexOf('wallpaper')===0); } }catch(e){}
+    }
+    if(hasWp){ SETTINGS.welcomeDone=true; try{saveSetting('welcomeDone',true);}catch(e){} return; }
     setTimeout(()=>{ try{ if(!SETTINGS.welcomeDone) showWelcomeSetup(); }catch(e){} }, 450);
   }catch(e){}
 }
+// ---- guided app tour (customer onboarding; re-runnable from Setup) ----------
+const APP_TOUR=[
+  {group:null,               title:'Welcome to Fragnetic',  body:'Your FragPunk companion — smart routing, a local AI coach, gameplay recording and more. Here’s a 30-second look at where everything lives. Use Next / Back, or Skip anytime.'},
+  {group:'play', tab:'routing', title:'Live Game',           body:'See the server you’re on, ping every region, and one-click connect to the lowest-ping route — no manual VPN. Region Lock keeps you on the region you pick.'},
+  {group:'game', tab:'lancers', title:'Game Info',           body:'Browse Lancers and Weapons, and keep your cosmetics in the Locker.'},
+  {group:'ai',   tab:'coach',   title:'AI Coach',            body:'Chat or talk to a local AI coach, catch official News, record & review your gameplay, and generate images. Pro-only features show a PRO badge.'},
+  {group:'media',tab:'browser', title:'Discreet Browser',    body:'A built-in browser for guides and stats so you never alt-tab out of your match.'},
+  {group:'system',tab:'setup',  title:'Setup & Health',      body:'Configure everything, download the AI models, and check each part of the app is healthy. Replay this tour anytime from Setup.'},
+];
+let _tourI=0;
+function startTour(){ _tourI=0; _tourShow(); }
+function _tourBtn(id,label,kind){
+  const base='border-radius:8px;padding:8px 16px;font-family:\'JetBrains Mono\',monospace;font-size:11px;letter-spacing:.08em;cursor:pointer;';
+  if(kind==='primary') return '<button id="'+id+'" style="'+base+'border:1px solid var(--cyan,#2ff0d4);background:rgba(47,240,212,.12);color:var(--cyan,#2ff0d4);font-weight:700">'+label+'</button>';
+  return '<button id="'+id+'" style="'+base+'border:1px solid var(--border,#2a2838);background:transparent;color:var(--text-dim,#cfc9de)">'+label+'</button>';
+}
+function _tourShow(){
+  const ex=document.getElementById('tourOv'); if(ex)ex.remove();
+  const s=APP_TOUR[_tourI]; if(!s){ _tourEnd(); return; }
+  if(s.group){ try{ if(typeof switchGroup==='function')switchGroup(s.group); if(s.tab&&typeof switchTab==='function')switchTab(s.tab); }catch(e){} }
+  const ov=document.createElement('div'); ov.id='tourOv';
+  ov.style.cssText='position:fixed;left:0;right:0;bottom:24px;z-index:99400;display:flex;justify-content:center;pointer-events:none;padding:0 16px';
+  const box=document.createElement('div');
+  box.style.cssText='pointer-events:auto;background:var(--bg-2,#14131c);border:1px solid var(--cyan,#2ff0d4);border-radius:14px;box-shadow:0 20px 60px rgba(0,0,0,.6);width:min(540px,94vw);padding:20px';
+  box.innerHTML='<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan,#2ff0d4);margin-bottom:6px">Tour · '+(_tourI+1)+'/'+APP_TOUR.length+'</div>'
+    +'<div style="font-family:Rajdhani,sans-serif;font-size:20px;font-weight:700;margin-bottom:4px">'+s.title+'</div>'
+    +'<div style="font-family:Rajdhani,sans-serif;font-size:14px;color:var(--text-dim,#cfc9de);margin-bottom:14px;line-height:1.5">'+s.body+'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end">'+_tourBtn('tourSkip','Skip','ghost')
+    +(_tourI>0?_tourBtn('tourBack','Back','ghost'):'')
+    +_tourBtn('tourNext',(_tourI===APP_TOUR.length-1?'Done':'Next →'),'primary')+'</div>';
+  ov.appendChild(box); document.body.appendChild(ov);
+  box.querySelector('#tourNext').onclick=()=>{ if(_tourI>=APP_TOUR.length-1){_tourEnd();} else {_tourI++;_tourShow();} };
+  const bk=box.querySelector('#tourBack'); if(bk)bk.onclick=()=>{ _tourI=Math.max(0,_tourI-1); _tourShow(); };
+  box.querySelector('#tourSkip').onclick=_tourEnd;
+}
+function _tourEnd(){ const ov=document.getElementById('tourOv'); if(ov)ov.remove(); SETTINGS.tourDone=true; try{saveSetting('tourDone',true);}catch(e){} }
 function _wpSlug(n){return String(n||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');}
 function loadWeapons(force){
   Promise.all([
@@ -5422,6 +5468,7 @@ async function setupLoad(){
   loadHardware();
   if(!_setWired){ _setWired=true;
     document.getElementById('setRefresh')?.addEventListener('click',setupLoad);
+    document.getElementById('setTour')?.addEventListener('click',()=>{ try{startTour();}catch(e){} });
     document.getElementById('setDlAll')?.addEventListener('click',()=>setDownload(null));
   }
   const el=document.getElementById('setList');
@@ -5637,6 +5684,17 @@ async function aifSaveOpt(key,val){
       <button id="authSubmit" class="auth-btn">Sign in</button>
       <div class="auth-toggle"><span id="authToggleTxt">New here?</span><a id="authToggle">Create an account</a></div>
       <div class="auth-toggle" id="authForgotRow"><a id="authForgot" data-i18n="Forgot password?">Forgot password?</a></div>
+      <details class="auth-guide" style="margin-top:12px;text-align:left">
+        <summary style="cursor:pointer;color:var(--cyan);font-size:13px;letter-spacing:.03em;list-style:none">🧭 New here? How Fragnetic works</summary>
+        <div style="font-size:13px;color:var(--text-dim);line-height:1.65;margin-top:8px">
+          <b>Live Game</b> — pings every region and one-click connects you to the lowest-ping route (no separate VPN app).<br>
+          <b>AI Coach</b> — a local coach you can chat or talk to; it records and reviews your gameplay.<br>
+          <b>Game Info &amp; Locker</b> — lancers, weapons, and your skins.<br>
+          <b>Browser</b> — a discreet in-app browser for guides without alt-tabbing.<br>
+          <b>Setup</b> — configure everything and download the AI models.<br>
+          <span style="opacity:.7">After you sign in, take the guided <b>tour</b> for a full walkthrough.</span>
+        </div>
+      </details>
       <div class="auth-foot">Your account &amp; password stay on this PC. Paid features unlock with a license key — start with a free trial.</div>
     </div>
     <div id="authRecovery" style="display:none">

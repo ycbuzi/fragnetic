@@ -362,7 +362,20 @@ def _save_concat(ff, parts, out, timeout, tail_seconds=None):
     if _STATE.get("wasapi_audio") and fragroute_audio is not None:
         try:
             tmp = Path(out).with_suffix(".mux.wav")
-            wav = fragroute_audio.snapshot(str(tmp), tail_seconds=tail_seconds)
+            # Full-match save: the audio thread started BEFORE ffmpeg's video (device
+            # open + ~0.4s warmup), so the WAV leads the video. Drop that lead off the
+            # audio head to keep A/V in sync. Rolling clips take the tail of both,
+            # anchored to 'now', so they don't need this.
+            head = 0.0
+            if tail_seconds is None:
+                try:
+                    a0 = fragroute_audio.started_at()
+                    v0 = float(_STATE.get("started", 0) or 0)
+                    if a0 and v0 and v0 > a0:
+                        head = min(5.0, v0 - a0)
+                except Exception:
+                    head = 0.0
+            wav = fragroute_audio.snapshot(str(tmp), tail_seconds=tail_seconds, head_seconds=head)
         except Exception:
             wav = None
     if wav and Path(wav).exists() and Path(wav).stat().st_size > 1024:
@@ -401,7 +414,10 @@ def save_clip(base_dir, seconds=30, label=None):
     stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
     safe = "".join(c for c in (label or "clip") if c.isalnum() or c in "-_") or "clip"
     out = clips / ("%s_%s.mp4" % (stamp, safe))
-    rc, log = _save_concat(ff, parts, out, timeout=45, tail_seconds=seconds)
+    # Match the audio window to the ACTUAL video length (rounded-up segments), not the
+    # requested seconds -- otherwise the audio tail is shorter than the video and the
+    # two drift out of sync. Both then cover the same last-N-seconds window.
+    rc, log = _save_concat(ff, parts, out, timeout=45, tail_seconds=len(parts) * seg_seconds)
     if rc != 0 or not out.exists():
         return {"ok": False, "message": "Clip save failed: %s" % (log[:200] or "unknown")}
     return {"ok": True, "file": str(out), "name": out.name,
