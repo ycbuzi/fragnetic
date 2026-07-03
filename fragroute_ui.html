@@ -2542,7 +2542,7 @@ async function doConnect(rid){
   const r=REGIONS.find(x=>x.id===rid);
   if(SETTINGS.confirmTunnelSwitch && STATUS.activeTunnel){
     const cur=REGIONS.find(x=>x.id===STATUS.activeRegion);
-    if(!confirm(`Switch tunnel from ${cur?cur.name:STATUS.activeTunnel} to ${r?r.name:rid}?`))return;
+    if(!await uiConfirm(`Switch tunnel from ${cur?cur.name:STATUS.activeTunnel} to ${r?r.name:rid}?`,{title:'Switch route',okText:'Switch'}))return;
   }
   const cfg=r?r.selectedConfig:null;
   const label=cfg||(r?r.name:rid);
@@ -2573,7 +2573,7 @@ async function doConnectRegionBest(rid){
   const r=REGIONS.find(x=>x.id===rid);
   if(SETTINGS.confirmTunnelSwitch && STATUS.activeTunnel){
     const cur=REGIONS.find(x=>x.id===STATUS.activeRegion);
-    if(!confirm(`Switch tunnel from ${cur?cur.name:STATUS.activeTunnel} to ${r?r.name:rid}?`))return;
+    if(!await uiConfirm(`Switch tunnel from ${cur?cur.name:STATUS.activeTunnel} to ${r?r.name:rid}?`,{title:'Switch route',okText:'Switch'}))return;
   }
   toast(`Connecting best in ${r?r.name:rid}…`);
   try{
@@ -2867,8 +2867,8 @@ function fxTabSwitch(name){
 const TAB_GROUPS={
   play:[['routing','Live Game'],['status','Status']],
   game:[['lancers','Lancers'],['weapons','Weapons'],['locker','Locker']],
-  ai:[['coach','Coach'],['footage','Record Gameplay'],['create','Image Gen'],['vision','Vision'],['label','Label'],['video','Video']],
-  media:[['replays','Replays'],['browser','Browser'],['news','News']],
+  ai:[['coach','Coach'],['news','News'],['footage','Record Gameplay'],['create','Image Gen'],['vision','Vision'],['label','Label'],['video','Video']],
+  media:[['browser','Browser'],['replays','Replays']],
   system:[['setup','Setup'],['health','Health']],
 };
 let _curGroup='play';
@@ -4527,7 +4527,7 @@ async function rlPreview(){
 async function rlApply(){
   const sel=document.getElementById('rlRegion'); const region=sel&&sel.value; if(!region){toast('Pick a region first','warn');return;}
   const nm=id=>{ const r=(REGIONS||[]).find(x=>x.id===id); return r?r.name:id; };
-  if(!confirm('Lock matchmaking to '+nm(region)+'?\n\nThis adds Windows Firewall rules that block every OTHER region’s match servers (your lobby, login and voice stay open). It auto-removes when you close Fragnetic, or hit Unlock.\n\nQueue from the MENU after locking.'))return;
+  if(!await uiConfirm('Lock matchmaking to '+nm(region)+'?\n\nThis adds Windows Firewall rules that block every OTHER region’s match servers (your lobby, login and voice stay open). It auto-removes when you close Fragnetic, or hit Unlock.\n\nQueue from the MENU after locking.'))return;
   const btn=document.getElementById('rlApply'); if(btn){btn.disabled=true;btn.textContent='Locking…';}
   try{
     const j=await (await fetch(API+'/api/regionlock/apply',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({region,confirm:true})})).json();
@@ -4567,7 +4567,7 @@ async function presetSave(){
   let st={}; try{ st=await (await fetch(API+'/api/status')).json(); }catch(e){}
   const cfg=st.activeTunnel, rid=st.activeRegion;
   if(!cfg){ toast('Connect a route first, then save it as a preset','err'); return; }
-  const name=prompt('Preset name:', (REGIONS.find(r=>r.id===rid)||{}).name? (REGIONS.find(r=>r.id===rid).name+' · '+cfg):cfg);
+  const name=await uiPrompt('Preset name:', {title:'Save route preset', okText:'Save', value:((REGIONS.find(r=>r.id===rid)||{}).name? (REGIONS.find(r=>r.id===rid).name+' · '+cfg):cfg)});
   if(!name)return;
   const ps=getPresets().filter(p=>p.name!==name); ps.push({name:name.trim(),regionId:rid,config:cfg});
   SETTINGS.routePresets=ps; saveSetting('routePresets',ps); renderPresets();
@@ -4578,10 +4578,10 @@ function presetApply(){
   if(!p){ toast('No preset selected'); return; }
   toast('Applying '+p.name+'…'); rtConnectCfg(p.config);
 }
-function presetDelete(){
+async function presetDelete(){
   const sel=document.getElementById('presetSelect'); const ps=getPresets(); const i=parseInt(sel.value,10);
   if(isNaN(i)||!ps[i])return;
-  if(!confirm('Delete preset "'+ps[i].name+'"?'))return;
+  if(!await uiConfirm('Delete preset "'+ps[i].name+'"?',{title:'Delete preset',okText:'Delete',danger:true}))return;
   ps.splice(i,1); SETTINGS.routePresets=ps; saveSetting('routePresets',ps); renderPresets();
 }
 document.getElementById('presetSave').addEventListener('click',presetSave);
@@ -5719,7 +5719,7 @@ function _uiModal(opts){
     const h=document.createElement('div'); h.textContent=opts.title||(isPrompt?'Enter value':'Confirm');
     h.style.cssText='font-family:"JetBrains Mono",monospace;font-size:13px;letter-spacing:.1em;text-transform:uppercase;color:var(--pink,#ff2f92);margin-bottom:10px';
     const m=document.createElement('div'); m.textContent=opts.message||'';
-    m.style.cssText='font-size:15px;line-height:1.5;margin-bottom:16px;color:var(--text-dim,#cfc9de);font-family:Rajdhani,sans-serif';
+    m.style.cssText='font-size:15px;line-height:1.5;margin-bottom:16px;color:var(--text-dim,#cfc9de);font-family:Rajdhani,sans-serif;white-space:pre-line';
     box.appendChild(h); box.appendChild(m);
     let inp=null;
     if(isPrompt){
