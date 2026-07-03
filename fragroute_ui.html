@@ -2050,7 +2050,7 @@ const SETTINGS_DEFAULTS = {
   autoCapture:true, gamePollSeconds:6, pauseDetectionWhenIdle:false, suggestBetterRoute:true,
   newsAutoRefreshSeconds:0, newsSources:'both', newsOpenIn:'inapp', newsCount:12,
   autoStartTimerOnConnect:true, minLogSeconds:3,
-  theme:'pink', compact:false, lite:true, clock24h:true, defaultTab:'routing', lang:'auto'
+  theme:'pink', compact:false, lite:true, clock24h:true, defaultTab:'routing', lang:'auto', welcomeDone:false
 };
 let SETTINGS = {...SETTINGS_DEFAULTS};
 
@@ -3126,6 +3126,65 @@ function _wpClearBg(){
   const sl=document.getElementById('wpDim');
   if(sl){let t;sl.addEventListener('input',()=>{const v=parseInt(sl.value,10);const val=document.getElementById('wpDimVal');if(val)val.textContent=v+'%';SETTINGS.wallpaperDim=v;applyWallpaper();clearTimeout(t);t=setTimeout(()=>saveSetting('wallpaperDim',v),400);});}
 })();
+// ---- first-login "Make it yours" wallpaper onboarding (shown once) ----------
+function _wpGradients(){
+  return [
+    {n:'Aurora',   c:['#0a0a1f','#1a1440','#ff2f92']},
+    {n:'Cyan Dusk',c:['#04121a','#0a2e33','#2ff0d4']},
+    {n:'Ember',    c:['#180a0a','#3a1420','#ff6b3d']},
+    {n:'Violet',   c:['#0a0618','#241246','#b48cff']},
+    {n:'Void',     c:['#060608','#12121a','#39374a']},
+  ];
+}
+function _wpPresetDataUrl(cols){
+  const cv=document.createElement('canvas');cv.width=1280;cv.height=800;
+  const x=cv.getContext('2d');
+  const g=x.createLinearGradient(0,0,cv.width,cv.height);
+  g.addColorStop(0,cols[0]);g.addColorStop(0.55,cols[1]);g.addColorStop(1,cols[2]);
+  x.fillStyle=g;x.fillRect(0,0,cv.width,cv.height);
+  const r=x.createRadialGradient(cv.width/2,cv.height*0.4,80,cv.width/2,cv.height/2,cv.width*0.78);
+  r.addColorStop(0,'rgba(0,0,0,0)');r.addColorStop(1,'rgba(0,0,0,0.45)');
+  x.fillStyle=r;x.fillRect(0,0,cv.width,cv.height);
+  return cv.toDataURL('image/jpeg',0.85);
+}
+function _wpSetDataUrl(dataUrl){
+  const slot='wallpaper:'+(SETTINGS.theme||'pink');
+  fetch(API+'/api/icon/set',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({slot:slot,image:dataUrl})})
+    .then(r=>r.json()).then(res=>{ if(res&&res.ok===false){toast(res.message||'Rejected','warn');return;}
+      _ICON_SLOTS.add(slot);_wpVer++;applyWallpaper();try{syncWallpaperUI();}catch(e){} })
+    .catch(()=>toast('Failed to save background','warn'));
+}
+function showWelcomeSetup(){
+  if(document.getElementById('welcomeOv'))return;
+  const ov=document.createElement('div');ov.id='welcomeOv';
+  ov.style.cssText='position:fixed;inset:0;z-index:99500;display:flex;align-items:center;justify-content:center;background:rgba(6,6,12,.82);backdrop-filter:blur(6px);padding:24px';
+  const box=document.createElement('div');
+  box.style.cssText='background:var(--bg-2,#14131c);border:1px solid var(--border-bright,#39374a);border-radius:16px;box-shadow:0 30px 90px rgba(0,0,0,.65);width:min(560px,94vw);max-height:90vh;overflow:auto;padding:26px';
+  box.innerHTML=`
+    <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan,#2ff0d4);margin-bottom:6px">Welcome to Fragnetic</div>
+    <div style="font-family:Rajdhani,sans-serif;font-size:22px;font-weight:700;margin-bottom:4px">Make it yours</div>
+    <div style="font-family:Rajdhani,sans-serif;font-size:14px;color:var(--text-dim,#cfc9de);margin-bottom:16px">Pick a background, or upload your own. You can change it anytime in Setup.</div>
+    <div id="welcomeGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:18px"></div>
+    <div style="display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap">
+      <button id="welcomeUpload" style="background:transparent;border:1px solid var(--border,#2a2838);color:var(--text-dim,#cfc9de);border-radius:8px;padding:10px 16px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.08em;cursor:pointer">Upload your own…</button>
+      <button id="welcomeDone" style="border:1px solid var(--cyan,#2ff0d4);background:rgba(47,240,212,.12);color:var(--cyan,#2ff0d4);border-radius:8px;padding:10px 22px;font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.08em;font-weight:700;cursor:pointer">Done</button>
+    </div>`;
+  ov.appendChild(box);document.body.appendChild(ov);
+  const grid=box.querySelector('#welcomeGrid');
+  _wpGradients().forEach(g=>{
+    const cell=document.createElement('button');
+    cell.style.cssText='border:1px solid var(--border,#2a2838);border-radius:10px;height:80px;cursor:pointer;background:linear-gradient(135deg,'+g.c[0]+','+g.c[1]+' 55%,'+g.c[2]+');color:#fff;font-family:Rajdhani,sans-serif;font-size:13px;font-weight:700;text-shadow:0 1px 5px rgba(0,0,0,.7)';
+    cell.textContent=g.n;
+    cell.onclick=()=>{ grid.querySelectorAll('button').forEach(b=>b.style.outline='none'); cell.style.outline='2px solid var(--cyan,#2ff0d4)'; _wpSetDataUrl(_wpPresetDataUrl(g.c)); };
+    grid.appendChild(cell);
+  });
+  box.querySelector('#welcomeUpload').onclick=()=>{ try{_wpPickImage();}catch(e){} };
+  function finish(){ try{document.body.removeChild(ov);}catch(e){} SETTINGS.welcomeDone=true; try{saveSetting('welcomeDone',true);}catch(e){} }
+  box.querySelector('#welcomeDone').onclick=finish;
+}
+function maybeWelcome(){
+  try{ if(!SETTINGS || SETTINGS.welcomeDone) return; setTimeout(()=>{ try{showWelcomeSetup();}catch(e){} }, 450); }catch(e){}
+}
 function _wpSlug(n){return String(n||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');}
 function loadWeapons(force){
   Promise.all([
@@ -5679,6 +5738,7 @@ async function refreshEntitlement(){
   if (tb){ tb.textContent = (ENT.tierLabel || ENT.tier || 'Free'); tb.className = 'tier-badge t-' + (ENT.tier || 'free'); }
   applyFeatureLocks();
   try{ if (typeof refreshTabsForTier === 'function') refreshTabsForTier(); }catch(e){}  // show/hide dev-only tabs
+  try{ const _g2=document.getElementById('authGate'); if((!_g2||_g2.style.display==='none') && typeof maybeWelcome==='function') maybeWelcome(); }catch(e){}  // first-login wallpaper setup (once)
 }
 function featOn(f){ return !ENT || ENT.disabled || !(ENT.features) || ENT.features[f] !== false; }
 function applyFeatureLocks(){
