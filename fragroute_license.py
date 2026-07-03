@@ -30,16 +30,19 @@ APP_LICENSE_BUILD = "lic-4"
 # ---- verify-only public key (safe to ship; cannot sign with it) -------------
 _PUBKEY_B64 = "kDUD32/uTxedly/hvXB6tIQLrla3bo/HTznhhO9Glqs="
 
-TIERS = {"free": 0, "pro": 1, "admin": 2}
-TIER_LABEL = {"free": "Free", "pro": "Pro", "admin": "Admin (owner)"}
+TIERS = {"free": 0, "trial": 1, "pro": 2, "admin": 3}
+TIER_LABEL = {"free": "Free", "trial": "Pro Trial", "pro": "Pro", "admin": "Admin (owner)"}
 
 # capability -> minimum tier. Anything NOT listed here is free for everyone.
 # NOTE: 'label'/'train' are ADMIN (owner) only -- those build/train the detector,
 # which is the developer's job. Consumers just RUN the model that ships in updates,
 # so they never see the labeling or training tools.
 FEATURES = {
-    "coach": "pro", "imagegen": "pro", "video": "pro", "detector": "pro",
-    "reports": "pro", "live": "pro",
+    # PREVIEW tier: unlocked during the 14-day trial AND for paid Pro (locked for Free).
+    "coach": "trial", "detector": "trial", "reports": "trial", "live": "trial",
+    # PREMIUM: PAID Pro only -- stays locked even during the trial (the reason to buy).
+    "imagegen": "pro", "video": "pro", "footage": "pro",
+    # Owner-only build/train tooling.
     "label": "admin", "train": "admin", "admin_tools": "admin",
 }
 # always-on free core (shown so the UI can label them)
@@ -402,9 +405,12 @@ def entitlement():
         sources.append("account")
 
     tdl = trial_days_left()
-    trial_active = tdl > 0 and rank(best) < rank("pro")
+    # The trial grants the PREVIEW tier (coach/live/reports/detector), NOT full Pro --
+    # premium features (image gen, video editor, footage recorder) stay locked so the
+    # trial is a genuine preview, not a free Pro giveaway.
+    trial_active = tdl > 0 and rank(best) < rank("trial")
     if trial_active:
-        best = "pro"
+        best = "trial"
         sources.append("trial")
 
     feats = {}

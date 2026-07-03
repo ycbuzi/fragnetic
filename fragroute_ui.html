@@ -2880,11 +2880,14 @@ function _tabVisible(k){
   return !!(typeof ENT==='object' && ENT && (ENT.tier==='admin' || ENT.disabled));
 }
 function _groupOf(tab){ return Object.keys(TAB_GROUPS).find(g=>TAB_GROUPS[g].some(([k])=>k===tab)); }
+// which paid feature each sub-tab needs, so Free/Trial users see a PRO lock on it
+const SUBTAB_FEAT={coach:'coach',vision:'coach',footage:'footage',create:'imagegen',video:'video'};
 function renderSubtabs(group){
   const bar=document.getElementById('tabSub'); if(!bar)return;
   bar.innerHTML=(TAB_GROUPS[group]||[]).filter(([k])=>_tabVisible(k))
-    .map(([k,label])=>`<button class="tab" data-tab="${k}">${(typeof t==='function'?t(label):label)}</button>`).join('');
+    .map(([k,label])=>{const _f=SUBTAB_FEAT[k]; return `<button class="tab" data-tab="${k}"${_f?` data-feat="${_f}"`:''}>${(typeof t==='function'?t(label):label)}</button>`;}).join('');
   bar.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>switchTab(b.dataset.tab)));
+  bar.querySelectorAll('[data-feat]').forEach(el=>{ if(typeof featOn==='function') el.classList.toggle('feat-locked', !featOn(el.getAttribute('data-feat'))); });
 }
 // re-render the current group's tabs once we know the tier (Label appears for admin)
 function refreshTabsForTier(){

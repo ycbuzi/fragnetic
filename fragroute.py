@@ -1280,7 +1280,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "18.2"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "18.3"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 
 # ===========================================================================
@@ -7818,6 +7818,9 @@ class Handler(BaseHTTPRequestHandler):
                     return "video"
                 if p.startswith("/api/train/"):
                     return "train"
+                if p.startswith("/api/capture/") and p not in (
+                        "/api/capture/status", "/api/capture/outputs"):
+                    return "footage"          # match recording / save-clip is paid-Pro only
                 return None
             _feat = _required_feature(path)
             if _feat and not fragroute_license.is_enabled(_feat):
