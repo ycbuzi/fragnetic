@@ -1331,12 +1331,12 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "19.3"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "19.4"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 # Lemon Squeezy checkout link (the app's Buy/Unlock buttons open this in the system
 # browser). Get it from your LS dashboard -> Products -> "Share" / checkout link.
 # Leave "" and the Unlock button falls back to the Account modal (paste-a-key).
-BUY_URL = ""   # e.g. "https://YOURSTORE.lemonsqueezy.com/buy/XXXXXXXX-XXXX-..."
+BUY_URL = "https://fragnetic.lemonsqueezy.com/"   # Lemon Squeezy storefront (Pro checkout)
 
 # ===========================================================================
 # DIAGNOSTICS  -- so "the app wasn't working" stops being invisible.

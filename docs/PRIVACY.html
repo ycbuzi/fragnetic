@@ -1,0 +1,148 @@
+<!doctype html><html lang=en><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>Privacy Policy — Fragnetic</title>
+<style>
+ body{margin:0;background:#0a0a0f;color:#d8d4e4;font-family:-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.65}
+ .wrap{max-width:820px;margin:0 auto;padding:48px 22px 80px}
+ a{color:#2ff0d4;text-decoration:none} a:hover{text-decoration:underline}
+ h1{color:#fff;font-size:30px;margin:0 0 6px} h2{color:#ff2f92;font-size:20px;margin:28px 0 8px}
+ h3{color:#fff;font-size:16px;margin:20px 0 6px}
+ ul{padding-left:20px} li{margin:4px 0} p{margin:10px 0}
+ .top{font-size:13px;color:#9a95ad;margin-bottom:24px} .top a{margin-right:14px}
+ code{background:#17151f;padding:1px 5px;border-radius:4px}
+</style></head><body><div class=wrap>
+<div class=top><a href="index.html">← Fragnetic</a> <a href="EULA.html">EULA</a> <a href="PRIVACY.html">Privacy</a> <a href="REFUND.html">Refunds</a></div>
+<h1>Fragnetic — Privacy Policy</h1>
+
+<p>*Draft — last updated 2026-07-02. Not a substitute for legal review before</p>
+<p>launch, especially if you sell to customers in the EU/UK (GDPR) or California</p>
+<p>(CCPA) — see the notes at the bottom.*</p>
+
+<h2>The short version</h2>
+
+<p>Fragnetic is a <strong>local-first</strong> application. By default, everything it does —</p>
+<p>your account, your license, your recordings, your AI conversations, your</p>
+<p>settings — stays on your own computer. We do not run a server that collects</p>
+<p>your activity, and there is no analytics/telemetry call anywhere in the app.</p>
+
+<h2>What Fragnetic stores (all local, on your device)</h2>
+
+<ul>
+<li><strong>Account</strong>: a username and a password hash (PBKDF2-SHA256, not your raw</li>
+</ul>
+<p>  password), stored in a local file on your machine.</p>
+<ul>
+<li><strong>License</strong>: your license key and its embedded entitlement (verified with</li>
+</ul>
+<p>  cryptographic signature checking — no phone-home required).</p>
+<ul>
+<li><strong>Recordings</strong>: match video/audio you capture, saved to a local folder you</li>
+</ul>
+<p>  control, with an auto-cleanup size limit you set.</p>
+<ul>
+<li><strong>AI conversations</strong>: your chat/voice questions and the coach&#x27;s answers,</li>
+</ul>
+<p>  kept locally so it can hold context; you can clear this at any time.</p>
+<ul>
+<li><strong>App settings &amp; logs</strong>: queue times, region history, hardware info, and a</li>
+</ul>
+<p>  diagnostic log — all local, used only to power the app&#x27;s own features</p>
+<p>  (e.g. recommending a region).</p>
+
+<p><strong>None of the above is transmitted anywhere by default.</strong> There is no cloud</p>
+<p>account requirement and no built-in telemetry.</p>
+
+<h2>What *can* leave your device (and when)</h2>
+
+<ul>
+<li><strong>Server-region lookup</strong>: Fragnetic reads the IP address of the FragPunk</li>
+</ul>
+<p>  server you connect to (from your own network connection, the same</p>
+<p>  information any app on your PC could see) and looks up its rough</p>
+<p>  city/region using an <strong>offline</strong> database bundled with the app. This</p>
+<p>  lookup does not go out to the internet.</p>
+<ul>
+<li><strong>License activation</strong> (optional, off by default): if we ever run an</li>
+</ul>
+<p>  optional online activation service, only a hashed key ID and a machine</p>
+<p>  identifier are sent — never your gameplay data, recordings, or chat</p>
+<p>  content. This is disabled unless explicitly configured.</p>
+<ul>
+<li><strong>Cloud account sync</strong> (optional, off by default): Fragnetic supports an</li>
+</ul>
+<p>  optional cloud account mode for cross-device sync. It is <strong>not enabled</strong> in</p>
+<p>  the default consumer build. If enabled, only your account credentials</p>
+<p>  (hashed) sync — never recordings or AI conversations.</p>
+<ul>
+<li><strong>Model downloads</strong>: on first run, Fragnetic downloads AI models and a</li>
+</ul>
+<p>  GeoIP database from public sources (Hugging Face, GitHub, DB-IP) over</p>
+<p>  HTTPS. This is a one-time file download, not a data upload.</p>
+
+<h2>What Fragnetic does NOT do</h2>
+
+<ul>
+<li>No advertising or ad tracking.</li>
+<li>No selling or sharing of your data with third parties — we don&#x27;t have a</li>
+</ul>
+<p>  server that holds your data to begin with.</p>
+<ul>
+<li>No reading of files outside what you configure (recordings folder, app</li>
+</ul>
+<p>  settings) or the FragPunk process&#x27;s own network connections.</p>
+<ul>
+<li>No access to your other applications, browser history, or personal files.</li>
+</ul>
+
+<h2>Microphone and screen recording</h2>
+
+<p>Voice features access your microphone only when you actively trigger them</p>
+<p>(hotkey or the on-screen toggle) or during an active voice conversation you</p>
+<p>started. Screen/audio recording only runs when you turn it on (manually or</p>
+<p>via auto-record-matches). All captured media is written to your local</p>
+<p>recordings folder; nothing is uploaded.</p>
+
+<h2>Data retention &amp; deletion</h2>
+
+<p>Everything Fragnetic stores lives in plain files on your computer. You can</p>
+<p>delete your account, recordings, or AI conversation history at any time from</p>
+<p>within the app, or by deleting the app&#x27;s data folder directly. Uninstalling</p>
+<p>the app does not delete your recordings folder by default (so you don&#x27;t lose</p>
+<p>footage by accident); you can delete it manually.</p>
+
+<h2>Children&#x27;s privacy</h2>
+
+<p>Fragnetic is not directed at children under 13 (or the relevant age in your</p>
+<p>region) and we do not knowingly collect personal information from them,</p>
+<p>consistent with the fact that we do not collect personal information from</p>
+<p>anyone by default.</p>
+
+<h2>Changes to this policy</h2>
+
+<p>If a future version adds any new data collection, we will update this</p>
+<p>document and highlight the change in the app&#x27;s release notes before it takes</p>
+<p>effect.</p>
+
+<h2>Contact</h2>
+
+<p>*[Fill in: support/privacy contact email.]*</p>
+
+<p>---</p>
+<h3>Notes for legal review (not shown to customers)</h3>
+<ul>
+<li>If you sell into the EU/UK, GDPR requires a lawful basis, a named data</li>
+</ul>
+<p>  controller, and (if any personal data does leave the device — e.g. license</p>
+<p>  activation) a data processing addendum. Confirm with counsel whether the</p>
+<p>  offline-by-default design meaningfully reduces this burden for your case.</p>
+<ul>
+<li>If you sell into California, CCPA/CPRA disclosures may apply once revenue/</li>
+</ul>
+<p>  volume thresholds are met — track this as you scale.</p>
+<ul>
+<li>If/when you turn on optional cloud accounts or online license activation</li>
+</ul>
+<p>  for real customers, this document must be updated BEFORE that goes live,</p>
+<p>  not after.</p>
+
+</div></body></html>
