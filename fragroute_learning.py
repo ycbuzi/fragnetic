@@ -30,8 +30,11 @@ _CONFIRM = 3                    # N consistent observations -> trust it
 _DUR_KEEP = 50                 # cap stored match durations per mode
 
 
+_SCHEMA_VERSION = 2   # bump when the learning schema changes; _migrate() backfills old data
+
+
 def _blank():
-    return {"version": 1, "updated": 0, "modes": {}}
+    return {"version": _SCHEMA_VERSION, "updated": 0, "modes": {}}
 
 
 def _mode_entry(key):
@@ -48,6 +51,31 @@ def _mode_entry(key):
     }
 
 
+def _migrate(data):
+    """Forward-compatible migration: fill any keys added in newer schema versions
+    WITHOUT dropping the customer's learned values. This is what keeps years of a
+    player's learned data intact across app updates -- old installs upgrade cleanly
+    instead of silently losing their coach's memory."""
+    if not isinstance(data, dict):
+        return _blank()
+    data.setdefault("version", 1)
+    data.setdefault("updated", 0)
+    data.setdefault("modes", {})
+    for key, entry in list(data["modes"].items()):
+        if not isinstance(entry, dict):
+            data["modes"][key] = _mode_entry(key)
+            continue
+        tmpl = _mode_entry(key)
+        entry.setdefault("seed", tmpl["seed"])
+        entry.setdefault("online", tmpl["online"])
+        obs = entry.setdefault("observed", {})
+        for k, v in tmpl["observed"].items():          # backfill fields added later
+            if k not in obs:
+                obs[k] = dict(v) if isinstance(v, dict) else (list(v) if isinstance(v, list) else v)
+    data["version"] = _SCHEMA_VERSION
+    return data
+
+
 def load():
     if _CACHE["loaded"] and _CACHE["data"] is not None:
         return _CACHE["data"]
@@ -56,7 +84,7 @@ def load():
         if LEARNING_PATH and Path(LEARNING_PATH).exists():
             d = json.loads(Path(LEARNING_PATH).read_text(encoding="utf-8"))
             if isinstance(d, dict) and "modes" in d:
-                data = d
+                data = _migrate(d)
     except Exception:
         pass
     _CACHE["data"] = data

@@ -219,7 +219,16 @@ def _set_ls_license(key):
                 "(check your internet and try again): %s" % str(e)[:50]}
     if not res.get("activated"):
         err = res.get("error") or "this key wasn't accepted"
-        return {"valid": False, "error": err}
+        # Hardware-change / new-PC case: the key is valid but already activated on the
+        # max number of devices. Give an actionable message, not a bare 'rejected', so a
+        # customer who swapped a GPU/PC knows exactly how to recover.
+        low = err.lower()
+        limit = "activation" in low and any(w in low for w in ("limit", "reached", "maximum"))
+        if limit:
+            err = ("This key is already active on the maximum number of devices. In your "
+                   "Lemon Squeezy account (from your purchase email) you can deactivate an "
+                   "old device, then paste the key here again -- or contact support.")
+        return {"valid": False, "error": err, "activationLimit": limit}
     meta = res.get("meta") or {}
     lk = res.get("license_key") or {}
     inst = res.get("instance") or {}

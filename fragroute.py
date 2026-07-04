@@ -1332,7 +1332,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "19.5"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "19.6"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 # Lemon Squeezy checkout link (the app's Buy/Unlock buttons open this in the system
 # browser). Get it from your LS dashboard -> Products -> "Share" / checkout link.
@@ -4136,6 +4136,57 @@ def save_settings(updates):
 
 def get_setting(key, default=None):
     return _SETTINGS.get(key, DEFAULT_SETTINGS.get(key, default))
+
+
+# ---- portable user data (back up on one PC, restore on another) -------------
+# The 'you' of the app: coach memory, preferences, rank/replays/skins, wallpaper,
+# coaching tone. NOT accounts (password hashes), the license (re-activate with the
+# key), or harvested server/network intel (regenerates locally). All JSON so a
+# backup is one clean file. The license/account move separately for security.
+_BACKUP_FILES = ["fragroute_mode_learning.json", "fragroute_settings.json",
+                 "fragroute_queue_log.json", "fragroute_rank.json",
+                 "fragroute_replays.json", "fragroute_weapon_skins.json",
+                 "fragroute_icons.json", "fragroute_persona.json"]
+
+
+def _data_dir():
+    cd = STATE.get("configs_dir")
+    return cd.parent if cd else Path(".")
+
+
+def export_user_data():
+    out = {"app": APP_NAME, "build": APP_BUILD, "kind": "fragnetic-backup", "files": {}}
+    d = _data_dir()
+    for fn in _BACKUP_FILES:
+        p = d / fn
+        try:
+            if p.exists():
+                out["files"][fn] = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    out["count"] = len(out["files"])
+    return out
+
+
+def import_user_data(bundle):
+    if not isinstance(bundle, dict) or bundle.get("kind") != "fragnetic-backup":
+        return {"ok": False, "error": "That isn't a Fragnetic backup file."}
+    d = _data_dir()
+    n = 0
+    for fn, content in (bundle.get("files") or {}).items():
+        if fn not in _BACKUP_FILES:          # whitelist -> can never write an arbitrary path
+            continue
+        try:
+            (d / fn).write_text(json.dumps(content, indent=2), encoding="utf-8")
+            n += 1
+        except Exception:
+            pass
+    try:                                     # drop the learning cache so it re-reads
+        if fragroute_learning is not None:
+            fragroute_learning._CACHE["loaded"] = False
+    except Exception:
+        pass
+    return {"ok": True, "restored": n, "note": "Restart Fragnetic to fully apply your restore."}
 
 
 def _best_overall_region():
@@ -7664,6 +7715,10 @@ class Handler(BaseHTTPRequestHandler):
                 pass
             return self._json({"ok": True, "configured": True, "url": BUY_URL})
 
+        if path == "/api/data/export":
+            # Portable backup of the user's own data (coach memory, prefs, wallpaper...).
+            return self._json(export_user_data())
+
         if path == "/api/game/debug":
             # Diagnostic for the 'wrong server' / 'lobby shows as match' bugs: dumps the
             # game's raw connections and how each classifies. Hit this WHILE in the lobby
@@ -8198,6 +8253,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/settings":
             updated = save_settings(body or {})
             return self._json({"ok": True, "settings": updated})
+
+        if path == "/api/data/import":
+            # Restore a Fragnetic backup (whitelisted files only -- can't write elsewhere).
+            return self._json(import_user_data(body or {}))
 
         if path == "/api/dev/viewas":
             # OWNER-ONLY dev tool: preview the app as a customer tier (free/trial/pro),

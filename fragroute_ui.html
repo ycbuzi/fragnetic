@@ -1687,6 +1687,15 @@
     </div>
     <div class="ai-note">The big AI models (~20 GB total) aren't bundled in the app. Download the ones you want — each enables its feature. Runs in the background; keep using the app. (Runtime binaries + CLIP ship with the app.)</div>
     <div id="setModels" class="set-list"></div>
+
+    <div class="section-title" style="margin-top:14px"><span>💾 Your data</span></div>
+    <div class="ai-note">Back up your coach memory, preferences, rank, replays and wallpaper to a file — then restore it on a new PC. (Your login &amp; license move separately: sign in and paste your key on the new PC.)</div>
+    <div class="acct-btns" style="margin-top:6px">
+      <button class="mini-btn" id="dataExport">⬇ Back up my data</button>
+      <button class="mini-btn" id="dataImport">⬆ Restore from backup</button>
+      <input type="file" id="dataImportFile" accept="application/json,.json" style="display:none">
+    </div>
+    <div id="dataMsg" class="ai-note" style="margin-top:6px"></div>
   </div><!-- /pane setup -->
 
   <!-- ===================== HEALTH PANE ===================== -->
@@ -5515,6 +5524,26 @@ async function setupLoad(){
   if(!_setWired){ _setWired=true;
     document.getElementById('setRefresh')?.addEventListener('click',setupLoad);
     document.getElementById('setTour')?.addEventListener('click',()=>{ try{startTour();}catch(e){} });
+    document.getElementById('dataExport')?.addEventListener('click', async ()=>{
+      try{
+        const d=await (await fetch(API+'/api/data/export')).json();
+        const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([JSON.stringify(d,null,2)],{type:'application/json'}));
+        a.download='fragnetic-backup.json'; a.click();
+        const dm=document.getElementById('dataMsg'); if(dm)dm.textContent='Backed up '+(d.count||0)+' data files — keep this file safe.';
+      }catch(e){ toast('Backup failed: '+e,'err'); }
+    });
+    document.getElementById('dataImport')?.addEventListener('click',()=>document.getElementById('dataImportFile')?.click());
+    document.getElementById('dataImportFile')?.addEventListener('change', async (e)=>{
+      const f=e.target.files&&e.target.files[0]; if(!f)return;
+      try{
+        const bundle=JSON.parse(await f.text());
+        const r=await (await fetch(API+'/api/data/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(bundle)})).json();
+        const dm=document.getElementById('dataMsg');
+        if(r.ok){ if(dm)dm.textContent='Restored '+(r.restored||0)+' files. '+(r.note||''); toast('Restore complete','ok'); }
+        else { if(dm)dm.textContent=r.error||'restore failed'; toast(r.error||'restore failed','warn'); }
+      }catch(err){ toast('Not a valid backup file','warn'); }
+      e.target.value='';
+    });
     document.getElementById('setDlAll')?.addEventListener('click',()=>setDownload(null));
   }
   const el=document.getElementById('setList');
