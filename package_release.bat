@@ -32,7 +32,12 @@ if exist "%SRC%\ffmpeg.exe"    copy /y "%SRC%\ffmpeg.exe"    "%OUT%\" >nul
 if exist "%SRC%\wireguard.exe" copy /y "%SRC%\wireguard.exe" "%OUT%\" >nul
 
 REM --- model / asset folders (safe: no personal data) ---
-for %%D in (llm sd stt yolo clip geo tts) do (
+REM  Pass "slim" to ship only the small runtime models (detector + geo, ~0.2GB); the
+REM  app then downloads the fit-matched big models (LLM/SD/STT/TTS) on first run via
+REM  Setup. Default (no arg) = FULL, bundling every model (~30GB -- external hosting).
+set "MODELDIRS=llm sd stt yolo clip geo tts"
+if /I "%~1"=="slim" (set "MODELDIRS=yolo geo" & echo    [SLIM build -- big models download in-app on first run])
+for %%D in (%MODELDIRS%) do (
   if exist "%SRC%\%%D" xcopy /e /i /y "%SRC%\%%D" "%OUT%\%%D" >nul
 )
 
