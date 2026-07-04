@@ -105,16 +105,59 @@ def is_present(item):
         return False
 
 
+def recommend(prof=None):
+    """Match the model catalog to THIS PC's hardware: which tier fits, and the
+    recommended default download set. A 4GB card gets Phi-3.5 (not the 14B) and skips
+    SDXL; a 12GB+ card gets the 14B + SDXL; a no-GPU box gets the 1.5B on CPU. This is
+    how 'we scan the hardware -> we know which model size fits' becomes concrete."""
+    try:
+        import fragroute_hardware
+        p = prof or fragroute_hardware.detect()
+    except Exception:
+        p = prof or {}
+    vram = p.get("bestVramGB") or 0
+    ram = p.get("ramGB") or 0
+    # 'smart' coach LLM (runs out-of-game) sized to the card:
+    if vram >= 10:   smart = "llm_smart"    # Qwen2.5-14B
+    elif vram >= 4:  smart = "llm_mid"      # Phi-3.5-mini
+    else:            smart = "llm_fast"     # Qwen2.5-1.5B (CPU-friendly)
+    imagegen_ok = vram >= 8                 # SDXL is heavy; crawls under ~8GB
+    rec = {smart, "llm_fast", "vision", "vision_mmproj", "detector", "voice"}
+    if imagegen_ok:
+        rec.add("imagegen")
+    fit = {}
+    for it in MANIFEST:
+        k = it["key"]
+        if k == "llm_smart":   fit[k] = "good" if vram >= 10 else ("heavy" if vram >= 6 else "toobig")
+        elif k == "llm_mid":   fit[k] = "good" if vram >= 4 else "heavy"
+        elif k == "imagegen":  fit[k] = "good" if imagegen_ok else "heavy"
+        else:                  fit[k] = "good"
+    gpu = (p.get("primaryGpu") or {}).get("name") or "Your GPU"
+    if vram >= 10:   note = "%s (%gGB) runs the smart 14B coach + SDXL image gen." % (gpu, vram)
+    elif vram >= 8:  note = "%s (%gGB) runs Phi-3.5 + SDXL image gen." % (gpu, vram)
+    elif vram >= 4:  note = "%s (%gGB) runs Phi-3.5; SDXL image gen needs 8GB+ (skipped -- would be slow)." % (gpu, vram)
+    elif vram > 0:   note = "%s (%gGB) runs the lightweight 1.5B coach; heavy AI features will be slow." % (gpu, vram)
+    else:            note = "No GPU detected -- the 1.5B coach runs on CPU; image gen/vision will be slow."
+    return {"vramGB": vram, "ramGB": ram, "smartLlm": smart,
+            "recommendedKeys": sorted(rec), "fit": fit, "note": note}
+
+
 def status():
+    rec = recommend()
+    fit = rec.get("fit", {}); recset = set(rec.get("recommendedKeys", []))
     out = []
     for it in MANIFEST:
         pr = _PROG.get(it["key"]) or {}
         out.append({"key": it["key"], "label": it["label"], "approxMB": it["approxMB"],
                     "required": it.get("required", False), "present": is_present(it),
+                    "fit": fit.get(it["key"], "good"), "recommended": it["key"] in recset,
                     "status": pr.get("status", ""), "pct": pr.get("pct", 0)})
     missingMB = sum(i["approxMB"] for i in MANIFEST if not is_present(i))
+    recMissingMB = sum(i["approxMB"] for i in MANIFEST if i["key"] in recset and not is_present(i))
     return {"build": APP_SETUP_BUILD, "items": out, "running": _RUNNING["on"],
-            "missingMB": missingMB, "present": sum(1 for i in MANIFEST if is_present(i)),
+            "missingMB": missingMB, "recMissingMB": recMissingMB,
+            "recommendedKeys": sorted(recset), "hardwareNote": rec.get("note"),
+            "present": sum(1 for i in MANIFEST if is_present(i)),
             "total": len(MANIFEST)}
 
 

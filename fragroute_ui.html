@@ -5530,12 +5530,15 @@ async function setModelsLoad(){
   try{
     const m=await (await fetch(API+'/api/setup/models')).json();
     const mb=document.getElementById('setDlMB'); if(mb)mb.textContent=m.missingMB?('~'+(m.missingMB/1024).toFixed(1)+' GB missing'):'all present';
-    el.innerHTML=(m.items||[]).map(i=>{
+    const note = m.hardwareNote ? `<div class="set-row" style="background:rgba(47,240,212,.07)"><span class="si">🖥️</span><div class="st"><div class="sl">${_aiEsc(m.hardwareNote)}</div><div class="sd">Matched to your hardware${m.recMissingMB?(' · ~'+(m.recMissingMB/1024).toFixed(1)+' GB to download'):' · all present'}</div></div><div>${m.recMissingMB?'<span class="vbtn" id="dlRec" style="color:var(--cyan)">⬇ download what fits</span>':''}</div></div>` : '';
+    el.innerHTML=note+(m.items||[]).map(i=>{
       const prog=(i.status&&i.status.indexOf('download')>=0)?` · ${i.pct}%`:(i.status==='extracting'?' · extracting…':(i.status&&i.status.indexOf('error')>=0?(' · '+i.status):''));
+      const fit = i.fit==='heavy' ? '<span style="color:#ffcf66"> · heavy for your GPU</span>' : (i.fit==='toobig' ? '<span style="color:#ff6b6b"> · needs a bigger GPU</span>' : (i.recommended&&!i.present ? '<span style="color:var(--cyan)"> · ★ fits your PC</span>' : ''));
       const right = i.present ? '<span class="vau">installed</span>' : (i.status&&i.status!=='done'&&!i.status.startsWith('error')?`<span class="sd">${i.pct||0}%</span>`:`<span class="vbtn" data-dl="${i.key}" style="color:var(--cyan)">⬇ download</span>`);
-      return `<div class="set-row ${i.present?'ok':'no'}"><span class="si">${i.present?'✅':'📦'}</span><div class="st"><div class="sl">${_aiEsc(i.label)}</div><div class="sd">~${i.approxMB>=1024?(i.approxMB/1024).toFixed(1)+' GB':i.approxMB+' MB'}${i.required?' · required':''}${prog}</div></div><div>${right}</div></div>`;
+      return `<div class="set-row ${i.present?'ok':'no'}"><span class="si">${i.present?'✅':'📦'}</span><div class="st"><div class="sl">${_aiEsc(i.label)}</div><div class="sd">~${i.approxMB>=1024?(i.approxMB/1024).toFixed(1)+' GB':i.approxMB+' MB'}${i.required?' · required':''}${fit}${prog}</div></div><div>${right}</div></div>`;
     }).join('')||'<div class="set-row"><span class="sd">installer unavailable</span></div>';
     el.querySelectorAll('.vbtn[data-dl]').forEach(b=>b.addEventListener('click',()=>setDownload([b.dataset.dl])));
+    const dr=document.getElementById('dlRec'); if(dr)dr.addEventListener('click',()=>setDownload(m.recommendedKeys||[]));
     // poll while a download is running
     if(m.running){ if(!_setPoll)_setPoll=setInterval(setModelsLoad,1500); }
     else if(_setPoll){ clearInterval(_setPoll); _setPoll=null; }
