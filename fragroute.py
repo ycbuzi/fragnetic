@@ -768,6 +768,7 @@ def _build_ai_ctx():
             pass
         ctx["llm"] = fragroute_llm.chat
         ctx["llm_available"] = fragroute_llm.available
+        ctx["rag_budget"] = fragroute_llm.rag_budget   # scale grounding to the active model's context
 
     def _connect_best():
         rows = [(region_best_latency(r["id"]), r["id"]) for r in REGIONS]
@@ -1331,7 +1332,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "19.4"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "19.5"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 # Lemon Squeezy checkout link (the app's Buy/Unlock buttons open this in the system
 # browser). Get it from your LS dashboard -> Products -> "Share" / checkout link.

@@ -101,6 +101,21 @@ def set_prefer_fast(v):
     _PREFER["fast"] = bool(v)
 
 
+def rag_budget():
+    """How much grounding to inject, scaled to the ACTIVE model's context window.
+    The in-game 'fast' model runs with a 2048 ctx (small-GPU KV limit); stuffing 24
+    facts + the system prompt into it overflows -> truncated/empty replies. A big
+    out-of-game model has room for far more. This keeps the learned data RELEVANT
+    across any model swap: the memory is model-agnostic, only how much of it fits
+    changes. Returns {'facts': N, 'bits': M}."""
+    label = _STATE.get("label")
+    ctx = 2048 if label == "fast" else CTX_TOKENS      # mirrors the -c arg in ensure()
+    if ctx <= 2048:   return {"facts": 5,  "bits": 9}
+    if ctx <= 4096:   return {"facts": 9,  "bits": 16}
+    if ctx <= 8192:   return {"facts": 14, "bits": 22}
+    return {"facts": 18, "bits": 30}
+
+
 def _choose():
     """Return (model_path, device_arg|None, label) per the smart/fast preference."""
     m = find_models()

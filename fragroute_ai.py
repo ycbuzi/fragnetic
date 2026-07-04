@@ -596,12 +596,22 @@ def _llm_answer(ctx, msg):
             return None
     except Exception:
         return None
-    # retrieve grounding: relevant online facts + any named mode's profile
+    # retrieve grounding: relevant online facts + any named mode's profile.
+    # SCALE how much we inject to the ACTIVE model's context window -- a small in-game
+    # model (2048 ctx) overflows if we stuff 24 facts + the system prompt into it. The
+    # learned data is model-agnostic; only how much of it fits changes across models.
+    budget = {"facts": 8, "bits": 24}
+    rb = ctx.get("rag_budget")
+    if rb:
+        try:
+            budget = rb() or budget
+        except Exception:
+            pass
     bits = []
     sf = ctx.get("search_facts")
     if sf:
         try:
-            for f in sf(msg, 8):
+            for f in sf(msg, budget["facts"]):
                 bits.append("- %s (%s)" % (f.get("fact"), f.get("trust", "web")))
         except Exception:
             pass
@@ -620,7 +630,7 @@ def _llm_answer(ctx, msg):
             bits.append("- Shard cards: %s %s" % (sysd.get("summary", ""), sysd.get("points", "")))
         for c in (cd.get("notable") or [])[:11]:
             bits.append("- Card '%s': %s" % (c.get("name"), c.get("effect")))
-    context = "\n".join(bits[:24])
+    context = "\n".join(bits[:budget["bits"]])
     user = (("CONTEXT (FragPunk facts you've learned):\n%s\n\n" % context) if context else "") + \
            ("QUESTION: %s" % msg)
     # adaptive personality: the engine passes a per-user coaching-style instruction
