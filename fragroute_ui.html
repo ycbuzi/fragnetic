@@ -2678,6 +2678,25 @@ async function openExternal(url){
   try{await fetch(API+'/api/open',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url})});}
   catch(e){try{window.open(url,'_blank');}catch(_){}}
 }
+// Quietly tell the user when a newer build shipped (so customers on an old version
+// actually get fixes). Non-blocking; dismiss is remembered per-version so it never nags.
+async function checkAppUpdate(){
+  try{
+    const j = await (await fetch(API+'/api/update/check')).json();
+    if(!j || !j.updateAvailable || !j.latest) return;
+    if(localStorage.getItem('updateDismissed')===j.latest) return;
+    let el = document.getElementById('updateNotice');
+    if(!el){ el=document.createElement('div'); el.id='updateNotice';
+      el.style.cssText='position:fixed;bottom:16px;right:16px;z-index:99999;max-width:320px;background:#12121a;border:1px solid var(--cyan,#2ff0d4);border-radius:12px;padding:14px 16px;box-shadow:0 8px 30px rgba(0,0,0,.55);font-size:13px;color:#e8e8f0';
+      document.body.appendChild(el); }
+    el.innerHTML='<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--cyan,#2ff0d4);margin-bottom:6px">Update available</div>'
+      +'<div style="margin-bottom:10px;line-height:1.5">Fragnetic <b>'+j.latest+'</b> is out (you have '+j.current+'). Grab the new build to get the latest fixes.</div>'
+      +'<div style="display:flex;gap:8px"><button id="updDl" style="flex:1;background:var(--cyan,#2ff0d4);color:#04141a;border:0;border-radius:8px;padding:8px;font-weight:600;cursor:pointer">Download</button>'
+      +'<button id="updX" style="background:transparent;color:#8b8b96;border:1px solid #333;border-radius:8px;padding:8px 12px;cursor:pointer">Later</button></div>';
+    el.querySelector('#updDl').onclick=()=>{ openExternal(j.url); el.remove(); };
+    el.querySelector('#updX').onclick=()=>{ try{localStorage.setItem('updateDismissed', j.latest);}catch(_){}; el.remove(); };
+  }catch(e){}
+}
 async function loadNews(force){
   const note=document.getElementById('newsNote'), grid=document.getElementById('newsGrid');
   if(force){note.style.display='';note.className='news-note';note.textContent='Refreshing Fragpunk news\u2026';}
@@ -4952,6 +4971,7 @@ function renderNetGraph(){
   renderPresets();       // saved route presets
   refreshSrvPings();     // load any stored in-game server-ping table
   refreshGameInfo();     // game version + update detection (Status tab)
+  checkAppUpdate();      // app self-update notice (newer build shipped?)
   // pull initial latency (backend warmed it on startup)
   try{const res=await fetch(API+'/api/latency');const j=await res.json();const pc=j.latency||{},rb=j.regionBest||{};REGIONS.forEach(r=>{r.latencyMs=rb[r.id]??null;if(r.servers)r.servers.forEach(s=>{s.latencyMs=pc[s.name]??null;});});updateLive();}catch(e){}
 

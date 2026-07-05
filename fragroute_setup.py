@@ -216,11 +216,30 @@ def _download(item):
     except Exception:
         pass  # can't measure -> proceed; the write will still error safely if truly full
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "FRAGROUTE-setup"})
+        # RESUME: if a previous attempt left a partial .part on disk, ask the server to
+        # continue from where we stopped (HTTP Range) instead of re-downloading GBs --
+        # crucial for big models on a slow/flaky connection. If the server ignores Range
+        # (responds 200 not 206), we transparently restart from scratch. Monthly-gz URLs
+        # are resolved fresh each time, so we don't try to resume those.
+        resume_from = 0
+        if not is_gz:
+            try:
+                if os.path.exists(tmp):
+                    resume_from = os.path.getsize(tmp)
+            except Exception:
+                resume_from = 0
+        headers = {"User-Agent": "FRAGROUTE-setup"}
+        if resume_from > 0:
+            headers["Range"] = "bytes=%d-" % resume_from
+        req = urllib.request.Request(url, headers=headers)
         with urllib.request.urlopen(req, timeout=60) as r:
-            total = int(r.headers.get("Content-Length", 0) or 0)
-            done = 0
-            with open(tmp, "wb") as f:
+            status = getattr(r, "status", None) or r.getcode()
+            clen = int(r.headers.get("Content-Length", 0) or 0)
+            if resume_from > 0 and status == 206:
+                mode, done, total = "ab", resume_from, resume_from + clen   # server honored resume
+            else:
+                mode, done, resume_from, total = "wb", 0, 0, clen           # fresh / server ignored Range
+            with open(tmp, mode) as f:
                 while True:
                     chunk = r.read(1 << 20)      # 1MB
                     if not chunk:
@@ -228,7 +247,7 @@ def _download(item):
                     f.write(chunk)
                     done += len(chunk)
                     pct = int(100 * done / total) if total else 0
-                    _PROG[key] = {"status": "downloading", "pct": pct,
+                    _PROG[key] = {"status": ("resuming" if resume_from else "downloading"), "pct": pct,
                                   "mb": round(done / 1048576), "totalMb": round((total or item["approxMB"] * 1048576) / 1048576)}
         if is_zip:
             _PROG[key]["status"] = "extracting"
@@ -271,11 +290,17 @@ def _download(item):
         return True
     except Exception as e:
         _PROG[key] = {"status": "error: %s" % str(e)[:80], "pct": 0}
-        try:
-            if os.path.exists(tmp):
-                os.remove(tmp)
-        except Exception:
-            pass
+        # KEEP the partial .part on a network error so the NEXT attempt resumes it (Range)
+        # instead of restarting a multi-GB download. A corrupt tail self-heals: the final
+        # sha256 mismatches, the file is deleted, and the following retry starts clean. Only
+        # zip/gz temps are removed -- those must be a COMPLETE archive to extract, and they're
+        # small enough that re-downloading is cheap.
+        if is_zip or is_gz:
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except Exception:
+                pass
         return False
 
 

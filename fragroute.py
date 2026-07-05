@@ -1332,12 +1332,53 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "19.8"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "19.9"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 # Lemon Squeezy checkout link (the app's Buy/Unlock buttons open this in the system
 # browser). Get it from your LS dashboard -> Products -> "Share" / checkout link.
 # Leave "" and the Unlock button falls back to the Account modal (paste-a-key).
 BUY_URL = "https://fragnetic.lemonsqueezy.com/"   # Lemon Squeezy storefront (Pro checkout)
+
+# ---------------------------------------------------------------------------
+# Update check -- so customers on an OLD build actually learn a new one shipped.
+# Without this, someone who installs 19.6 never finds out about later fixes (e.g.
+# AMD/Intel recording). We ask the GitHub Releases API for the latest tag, compare
+# it to APP_BUILD, and the UI shows a quiet "update available" note with a link.
+# Best-effort + cached 6h so we never hammer the API or nag on a network hiccup.
+UPDATE_API_URL = "https://api.github.com/repos/ycbuzi/fragnetic/releases/latest"
+UPDATE_DOWNLOAD_URL = "https://github.com/ycbuzi/fragnetic/releases/latest"
+_UPDATE_CACHE = {"ts": 0.0, "data": None}
+
+
+def _ver_tuple(s):
+    """Parse '19.8' / 'v19.10' into a comparable numeric tuple (so 19.10 > 19.9)."""
+    nums = re.findall(r"\d+", str(s or ""))
+    return tuple(int(n) for n in nums) or (0,)
+
+
+def check_for_update(force=False):
+    """Compare APP_BUILD to the latest published GitHub release. Cached 6h. Any
+    failure -> updateAvailable False (never nag on a transient network error).
+    Returns {current, latest, updateAvailable, url}."""
+    now = time.time()
+    c = _UPDATE_CACHE
+    if c["data"] is not None and not force and (now - c["ts"]) < 6 * 3600:
+        return c["data"]
+    latest = None
+    try:
+        req = urllib.request.Request(
+            UPDATE_API_URL,
+            headers={"User-Agent": "Fragnetic", "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=6) as r:
+            j = json.loads(r.read().decode("utf-8", "ignore"))
+        latest = (j.get("tag_name") or "").lstrip("vV").strip() or None
+    except Exception:
+        latest = None
+    avail = bool(latest) and _ver_tuple(latest) > _ver_tuple(APP_BUILD)
+    data = {"current": APP_BUILD, "latest": latest,
+            "updateAvailable": avail, "url": UPDATE_DOWNLOAD_URL}
+    c.update(ts=now, data=data)
+    return data
 
 # ===========================================================================
 # DIAGNOSTICS  -- so "the app wasn't working" stops being invisible.
@@ -7558,6 +7599,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/status":
             return self._json(status_snapshot(include_ip=False))
+
+        if path == "/api/update/check":
+            # is a newer build published? (cached 6h; best-effort)
+            return self._json(check_for_update())
 
         if path == "/api/game":
             # route-independent live game/server detection (reads Fragpunk's
