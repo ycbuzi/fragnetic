@@ -116,17 +116,55 @@ def rag_budget():
     return {"facts": 18, "bits": 30}
 
 
+_VK_COUNT = {"n": None}
+
+
+def _vulkan_device_count():
+    """How many Vulkan GPUs llama.cpp can actually see (cached, probed ONCE).
+
+    CRITICAL for shipping to customers: the OWNER'S rig has TWO GPUs -- the game
+    renders on Vulkan0 (RTX 4070) and AI is pinned to Vulkan1 (GTX 1650S) so it
+    never steals the render GPU. But MOST customers have ONE GPU (or integrated),
+    where there IS no Vulkan1 -- pinning `--device Vulkan1` makes llama-server fail
+    to launch ('server exited during startup') and the coach never loads. So we
+    only pin a SECONDARY device when a second one truly exists; otherwise everything
+    targets the single card. Fails safe to 1 (don't pin secondary) if probing fails."""
+    if _VK_COUNT["n"] is not None:
+        return _VK_COUNT["n"]
+    n = 1
+    try:
+        import re
+        binary, kind = find_binary()
+        if binary and kind == "vulkan":
+            flags = 0x08000000 if os.name == "nt" else 0      # CREATE_NO_WINDOW
+            out = subprocess.run([binary, "--list-devices"], capture_output=True,
+                                 text=True, timeout=20, creationflags=flags)
+            blob = (out.stdout or "") + (out.stderr or "")
+            idxs = set(re.findall(r"Vulkan(\d+)", blob))
+            if idxs:
+                n = len(idxs)
+    except Exception:
+        n = 1
+    _VK_COUNT["n"] = n
+    return n
+
+
 def _choose():
     """Return (model_path, device_arg|None, label) per the smart/fast preference."""
     m = find_models()
     _bin, kind = find_binary()
     vk = (kind == "vulkan")
+    prim = "Vulkan0" if vk else None                 # the (only / primary) GPU
+    # Secondary GPU exists only on a multi-GPU rig -> put the in-game FAST model
+    # there so it never fights the game for the render GPU. Single-GPU customers
+    # fall back to the primary (pinning a nonexistent Vulkan1 would refuse to boot).
+    sec = "Vulkan1" if (vk and _vulkan_device_count() >= 2) else prim
     if _PREFER["fast"] and m["fast"]:
-        return m["fast"], ("Vulkan1" if vk else None), "fast"
+        return m["fast"], sec, "fast"
     if m["smart"]:
-        return m["smart"], ("Vulkan0" if vk else None), "smart"
+        return m["smart"], prim, "smart"
     if m["fast"]:
-        return m["fast"], ("Vulkan0" if vk else None), "smart"
+        return m["fast"], prim, "smart"
     g = _text_ggufs()
     return (str(g[0]) if g else None), None, "?"
 
@@ -411,7 +449,12 @@ def _vision_devices(kind):
     vision still works (degraded) rather than dying. CPU build: no pin."""
     if kind != "vulkan":
         return [None]
-    return ["Vulkan1", "Vulkan0"]
+    # Dual-GPU: prefer the secondary card (off the game GPU), fall back to primary.
+    # Single-GPU customer: only Vulkan0 exists -- offering Vulkan1 just wastes a
+    # failed launch, so pin the one real device.
+    if _vulkan_device_count() >= 2:
+        return ["Vulkan1", "Vulkan0"]
+    return ["Vulkan0"]
 
 
 def ensure_vision_running(timeout=150):

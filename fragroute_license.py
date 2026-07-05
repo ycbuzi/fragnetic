@@ -49,10 +49,13 @@ FEATURES = {
 FREE_FEATURES = ["queue", "vpn", "overlay", "locker", "stats", "setup", "cards"]
 
 # The OWNER's machine gets admin automatically -- no key needed -- but ONLY on this
-# exact PC. machine_id() is derived from this box's MAC + hostname; a customer cannot
-# reproduce it, so shipping this constant in the build is safe (it unlocks nothing on
-# their hardware). This is how "admin is locked to my PC only" is enforced.
-OWNER_MACHINE_IDS = {"a4b4d266c63e7992"}
+# exact PC. machine_id() is now derived from the STABLE Windows MachineGuid (see
+# machine_id()); a customer cannot reproduce it, so shipping this constant in the build
+# is safe (it unlocks nothing on their hardware). This is how "admin is locked to my PC
+# only" is enforced. NOTE: the value below is the owner's id under the NEW MachineGuid
+# method -- the old MAC-based id ("a4b4d266c63e7992") is retired because the MAC method
+# drifted (VPN/adapter changes silently changed it, which had already broken this lock).
+OWNER_MACHINE_IDS = {"eaee9e5779c12ba1"}
 
 # DEV-ONLY tier preview. The owner can 'view as' a customer tier (free/trial/pro) to
 # check the gated experience. It is honored ONLY on the owner machine (see entitlement)
@@ -119,9 +122,29 @@ def _pub():
 
 
 def machine_id():
-    """Stable-ish per-machine id for seat tracking (best effort, not a secret)."""
-    raw = "%s|%s" % (uuid.getnode(), __import__("platform").node())
-    return hashlib.sha256(raw.encode("utf-8", "ignore")).hexdigest()[:16]
+    """STABLE per-machine id for seat / owner-unlock / license-instance tracking.
+
+    Prefer the Windows MachineGuid (HKLM\\SOFTWARE\\Microsoft\\Cryptography\\MachineGuid)
+    -- a per-INSTALL GUID that does NOT change with network adapters, VPN tunnels, USB
+    ethernet, docking, or reboots. This matters a lot here: uuid.getnode() returns the
+    MAC of *whatever adapter it enumerates first* (or a RANDOM value if none), so it
+    silently changes as adapters come and go -- and THIS APP ITSELF raises/lowers a
+    WireGuard adapter. The old MAC-based id therefore drifted (observed: the owner's own
+    id flipped between sessions), which would break owner-unlock and churn Lemon Squeezy
+    activations. MachineGuid is rock-stable. Falls back to the MAC+hostname hash only if
+    the registry can't be read (non-Windows, or a locked-down box)."""
+    stable = None
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                            r"SOFTWARE\Microsoft\Cryptography",
+                            0, winreg.KEY_READ | winreg.KEY_WOW64_64KEY) as k:
+            stable, _ = winreg.QueryValueEx(k, "MachineGuid")
+    except Exception:
+        stable = None
+    if not stable:
+        stable = "%s|%s" % (uuid.getnode(), __import__("platform").node())
+    return hashlib.sha256(("frgmid|" + str(stable)).encode("utf-8", "ignore")).hexdigest()[:16]
 
 
 def _b64u_dec(s):

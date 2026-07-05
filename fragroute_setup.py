@@ -198,6 +198,23 @@ def _download(item):
             _PROG[key] = {"status": "error: database not available yet, try later", "pct": 0}
             return False
     tmp = str(dest) + (".gz" if is_gz else ".zipdl" if is_zip else ".part")
+    # PRE-FLIGHT disk-space check: fail FAST with a clear message instead of
+    # downloading for 20 minutes and dying on "[Errno 28] No space left". zip/gz
+    # keep the compressed temp AND the extracted output on disk at the same time,
+    # so they need ~2x; direct downloads just need the file + a little headroom.
+    try:
+        import shutil as _sh
+        need_mb = int(item.get("approxMB", 0) or 0)
+        if is_zip or is_gz:
+            need_mb *= 2
+        need_mb += 512  # headroom for filesystem overhead / other writes
+        free_mb = _sh.disk_usage(str(dest.parent)).free // 1048576
+        if free_mb < need_mb:
+            _PROG[key] = {"status": "error: need %d MB free, only %d MB available -- free up space and retry"
+                          % (need_mb, free_mb), "pct": 0}
+            return False
+    except Exception:
+        pass  # can't measure -> proceed; the write will still error safely if truly full
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "FRAGROUTE-setup"})
         with urllib.request.urlopen(req, timeout=60) as r:

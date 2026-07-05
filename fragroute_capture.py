@@ -108,31 +108,62 @@ def _run(args, timeout=8):
 
 
 def probe(refresh=False):
-    """Check what this ffmpeg can do: NVENC encoders + ddagrab capture filter."""
+    """Check what this ffmpeg can do: an H.264 encoder + the ddagrab capture filter.
+    Encoder preference: NVENC (NVIDIA, ~0 FPS cost) > AMD h264_amf / Intel h264_qsv
+    (also hardware, low cost) > libx264 SOFTWARE (works on ANY GPU incl. AMD/Intel/
+    integrated -- the universal floor; costs some CPU). Recording is available if
+    ddagrab is present AND at least one of those encoders exists."""
     if _STATE["probe"] is not None and not refresh:
         return _STATE["probe"]
     ff = find_ffmpeg(refresh=refresh)
-    out = {"ffmpeg": ff, "ok": False, "nvenc": [], "ddagrab": False, "message": ""}
+    out = {"ffmpeg": ff, "ok": False, "nvenc": [], "hw": [], "software": False,
+           "ddagrab": False, "message": ""}
     if not ff:
-        out["message"] = ("ffmpeg not found. Drop ffmpeg.exe next to FRAGROUTE.exe "
-                          "(a build with NVENC + ddagrab) to enable recording.")
+        out["message"] = ("ffmpeg not found. Drop ffmpeg.exe next to Fragnetic.exe "
+                          "(a full build with ddagrab) to enable recording.")
         _STATE["probe"] = out
         return out
     rc, enc = _run([ff, "-hide_banner", "-encoders"])
     for name in ("h264_nvenc", "hevc_nvenc", "av1_nvenc"):
         if name in enc:
             out["nvenc"].append(name)
+    for name in ("h264_amf", "h264_qsv"):          # AMD / Intel hardware encoders
+        if name in enc:
+            out["hw"].append(name)
+    out["software"] = ("libx264" in enc)
     rc2, filt = _run([ff, "-hide_banner", "-filters"])
     out["ddagrab"] = ("ddagrab" in filt)
-    if out["nvenc"] and out["ddagrab"]:
+    has_enc = bool(out["nvenc"] or out["hw"] or out["software"])
+    if out["ddagrab"] and has_enc:
         out["ok"] = True
-        out["message"] = "Ready: NVENC + desktop-duplication capture available."
-    elif not out["nvenc"]:
-        out["message"] = "This ffmpeg has no NVENC encoder; need an nvenc-enabled build."
+        if out["nvenc"]:
+            out["message"] = "Ready: NVENC (0-cost GPU encode) + desktop-duplication capture."
+        elif out["hw"]:
+            out["message"] = "Ready: %s hardware encoder + desktop capture." % out["hw"][0]
+        else:
+            out["message"] = ("Ready: software (libx264) recording -- works on any GPU, "
+                              "uses some CPU while recording.")
     elif not out["ddagrab"]:
         out["message"] = "This ffmpeg lacks the ddagrab filter; need ffmpeg 6.0+ (full build)."
+    else:
+        out["message"] = "This ffmpeg has no usable H.264 encoder (nvenc / amf / qsv / libx264)."
     _STATE["probe"] = out
     return out
+
+
+def _pick_encoder(pr, requested=None):
+    """Choose the best available encoder from a probe result: NVENC > AMD/Intel HW >
+    software libx264. A valid user `requested` override wins."""
+    avail = list(pr.get("nvenc") or []) + list(pr.get("hw") or [])
+    if pr.get("software"):
+        avail.append("libx264")
+    if requested and requested in avail:
+        return requested
+    if pr.get("nvenc"):
+        return pr["nvenc"][0]
+    if pr.get("hw"):
+        return pr["hw"][0]
+    return "libx264"
 
 
 # ===========================================================================
@@ -190,13 +221,36 @@ def _build_capture_cmd(ff, ring_dir, fps, bitrate, encoder, gpu, seg_seconds, ri
     cmd = [ff, "-hide_banner", "-loglevel", "warning", "-nostdin", "-y"]
     if audio_device:
         cmd += ["-f", "dshow", "-i", "audio=" + audio_device]   # input #0 = system audio
-    # p5 preset = NVENC default/balanced (light on the encoder); 'hq' tune for recording.
-    cmd += ["-filter_complex", "ddagrab=output_idx=0:framerate=%d%s" % (int(fps), "[v]" if audio_device else "")]
+    is_nvenc = encoder.endswith("_nvenc")
+    # ddagrab yields D3D11 GPU frames. NVENC consumes those directly (zero-copy GPU
+    # encode). Software (libx264) and the AMD/Intel encoders need them in SYSTEM memory,
+    # so hwdownload them to nv12 first (a little CPU, but recording then works on ANY GPU).
+    grab = "ddagrab=output_idx=0:framerate=%d" % int(fps)
+    if not is_nvenc:
+        # ddagrab's desktop surface is BGRA. hwdownload can only output a format the
+        # GPU frame actually holds -- downloading straight to nv12 errors ("Invalid
+        # output format nv12 for hwframe download"). So download AS bgra, THEN convert
+        # to nv12 in system memory for the AMD/Intel/software encoder. (Verified live
+        # on an AMD Radeon iGPU: h264_amf produces valid segments with this chain.)
+        grab += ",hwdownload,format=bgra,format=nv12"
+    if audio_device:
+        grab += "[v]"
+    cmd += ["-filter_complex", grab]
     if audio_device:
         cmd += ["-map", "[v]", "-map", "0:a"]
-    cmd += ["-c:v", encoder, "-preset", "p5", "-tune", "hq", "-b:v", str(bitrate),
+    cmd += ["-c:v", encoder]
+    # encoder-appropriate speed preset (all chosen to stay light so in-game FPS holds):
+    if is_nvenc:
+        cmd += ["-preset", "p5", "-tune", "hq"]          # NVENC balanced, light on the encoder block
+    elif encoder == "h264_amf":
+        cmd += ["-usage", "transcoding", "-quality", "speed"]   # AMD hardware
+    elif encoder == "h264_qsv":
+        cmd += ["-preset", "veryfast"]                   # Intel QuickSync hardware
+    else:                                                # libx264 SOFTWARE fallback
+        cmd += ["-preset", "ultrafast", "-pix_fmt", "yuv420p"]  # 'ultrafast' = lowest CPU / least game impact
+    cmd += ["-b:v", str(bitrate),
             # Force standard SDR BT.709 limited-range color tags. ddagrab's desktop
-            # surface carries sRGB / odd-primary (bt470bg) metadata that NVENC
+            # surface carries sRGB / odd-primary (bt470bg) metadata that the encoder
             # propagates, so players apply the wrong gamma/primaries and the clip looks
             # washed-out / over-bright (the 'shine/glare'). Metadata only -- no filter,
             # so ZERO FPS cost (keeps the capture game-friendly). NOTE: if Windows HDR is
@@ -204,8 +258,8 @@ def _build_capture_cmd(ff, ring_dir, fps, bitrate, encoder, gpu, seg_seconds, ri
             # opt-in tonemap (which does cost CPU).
             "-color_range", "tv", "-colorspace", "bt709",
             "-color_primaries", "bt709", "-color_trc", "bt709"]
-    if gpu is not None:
-        cmd += ["-gpu", str(int(gpu))]          # only if explicitly pinned (default None)
+    if gpu is not None and is_nvenc:
+        cmd += ["-gpu", str(int(gpu))]                   # GPU pin only applies to NVENC          # only if explicitly pinned (default None)
     if audio_device:
         cmd += ["-c:a", "aac", "-b:a", "160k"]
     cmd += ["-f", "segment", "-segment_time", str(int(seg_seconds))]
@@ -258,9 +312,7 @@ def start(base_dir, opts=None):
                 pass
         fps = int(opts.get("fps", DEFAULT_FPS))
         bitrate = opts.get("bitrate", DEFAULT_BITRATE)
-        encoder = opts.get("encoder", DEFAULT_ENCODER)
-        if encoder not in (pr["nvenc"] or []):
-            encoder = (pr["nvenc"] or ["h264_nvenc"])[0]
+        encoder = _pick_encoder(pr, opts.get("encoder"))   # NVENC > AMD/Intel HW > libx264
         gpu = opts.get("gpu", DEFAULT_GPU)
         seg = int(opts.get("seg_seconds", SEG_SECONDS))
         nseg = int(opts.get("ring_segments", RING_SEGMENTS))
@@ -300,6 +352,17 @@ def start(base_dir, opts=None):
                 audio_device = None
                 try:
                     proc = _launch(None)
+                except Exception as e:
+                    return {"ok": False, "message": "Failed to start ffmpeg: %s" % e}
+        # ENCODER fallback: some AMD/Intel drivers reject their HW encoder. If the chosen
+        # one died at startup, retry with software libx264 so recording still works on ANY
+        # machine. (nvenc is reliable, so we don't pay this 1s check on the common path.)
+        if encoder in ("h264_amf", "h264_qsv") and pr.get("software"):
+            time.sleep(1.0)
+            if proc.poll() is not None:
+                encoder = "libx264"
+                try:
+                    proc = _launch(audio_device)
                 except Exception as e:
                     return {"ok": False, "message": "Failed to start ffmpeg: %s" % e}
         # if the WASAPI loopback thread died immediately, don't claim we have audio

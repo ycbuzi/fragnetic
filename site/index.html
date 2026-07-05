@@ -179,6 +179,21 @@
          Release with the SAME filename (Fragnetic-Setup.zip) and this stays correct
          across version bumps. 2GB asset limit -- the 25MB cap is only for repo files. -->
     <a href="https://github.com/ycbuzi/fragnetic/releases/latest/download/Fragnetic-Setup.zip" class="btn btn-primary" style="font-size:18px;padding:16px 40px">Download for Windows</a>
+
+    <!-- First-run steps. The exe is a new indie app and is NOT code-signed, so Windows
+         SmartScreen shows a blue "Windows protected your PC" warning on first launch.
+         Telling buyers this UP FRONT (with the exact "More info -> Run anyway" path)
+         stops them assuming it's malware and bailing / refunding. -->
+    <div style="max-width:640px;margin:32px auto 0;text-align:left;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:22px 26px">
+      <div style="font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--cyan);margin-bottom:14px">Installing — 3 steps</div>
+      <ol style="margin:0;padding-left:20px;line-height:1.9;color:#c9c9d4">
+        <li><b>Unzip</b> <code>Fragnetic-Setup.zip</code> anywhere (Desktop is fine) and run <code>Fragnetic.exe</code>.</li>
+        <li><b>Windows may show a blue "Windows protected your PC" screen.</b> That's just because we're a new app and not yet code-signed — it's expected. Click <b>More info</b> → <b>Run anyway</b>.</li>
+        <li>Click <b>Yes</b> on the admin prompt (needed to read your network so it can measure real region ping).</li>
+      </ol>
+      <div style="margin-top:14px;font-size:13px;color:#8b8b96">Runs 100% locally. No account required to try. If your antivirus quarantines it, allow/restore it — indie apps without a signing certificate are commonly flagged by heuristics.</div>
+    </div>
+
     <div class="disclaimer">
       Fragnetic is an independent, unofficial companion app for FragPunk. It is not affiliated with,
       sponsored by, or endorsed by NetEase. "FragPunk" is a trademark of its respective owner, referenced

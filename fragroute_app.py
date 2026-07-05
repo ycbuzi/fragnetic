@@ -379,17 +379,52 @@ def tune_webview_perf():
 
 
 def find_browser_appmode():
+    """Find a Chromium-family browser that supports --app=<url> (a chromeless
+    window). Checks Edge + Chrome + other Chromium browsers in BOTH machine-wide
+    and per-user install locations, then PATH, then the registry App Paths (catches
+    installs in non-standard folders). Edge ships on every Win10/11, so this almost
+    always succeeds; returns None only on a genuinely stripped box -- and the caller
+    then surfaces the URL in a message box so the app is still reachable."""
     import shutil
+    local = os.environ.get("LOCALAPPDATA", "")
     cands = [
         os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
         os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
         os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
         os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+        # per-user installs (Chrome/Edge can install under LOCALAPPDATA, no admin)
+        os.path.join(local, r"Google\Chrome\Application\chrome.exe") if local else None,
+        os.path.join(local, r"Microsoft\Edge\Application\msedge.exe") if local else None,
+        # other Chromium browsers that also honor --app=
+        os.path.expandvars(r"%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\BraveSoftware\Brave-Browser\Application\brave.exe"),
+        os.path.join(local, r"BraveSoftware\Brave-Browser\Application\brave.exe") if local else None,
+        os.path.expandvars(r"%ProgramFiles%\Vivaldi\Application\vivaldi.exe"),
+        os.path.join(local, r"Vivaldi\Application\vivaldi.exe") if local else None,
         shutil.which("msedge"), shutil.which("chrome"),
+        shutil.which("brave"), shutil.which("vivaldi"),
     ]
     for c in cands:
         if c and os.path.exists(c):
             return c
+    # registry App Paths -- finds a Chromium browser installed in a non-standard dir
+    if os.name == "nt":
+        try:
+            import winreg
+            for exe in ("msedge.exe", "chrome.exe", "brave.exe", "vivaldi.exe"):
+                for hive in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+                    try:
+                        with winreg.OpenKey(
+                            hive,
+                            r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\%s" % exe
+                        ) as k:
+                            p = winreg.QueryValue(k, None)
+                            if p and os.path.exists(p):
+                                return p
+                    except Exception:
+                        pass
+        except Exception:
+            pass
     return None
 
 
@@ -1104,13 +1139,19 @@ def run_native_window(url, httpd):
 
     ico = first_existing(icon_paths()["ico"])
     try:
-        if ico:
-            webview.start(icon=str(ico))
-        else:
-            webview.start()
-    except TypeError:
-        webview.start()  # older pywebview without icon kwarg
-    finally:
+        try:
+            if ico:
+                webview.start(icon=str(ico))
+            else:
+                webview.start()
+        except TypeError:
+            webview.start()  # older pywebview without icon kwarg
+    except Exception:
+        # WebView2 runtime MISSING or backend failed to initialize (common on a
+        # fresh Windows 10 box that never got the Edge WebView2 Evergreen runtime).
+        # DO NOT os._exit here -- that would kill the process before main()'s
+        # fallback can open an Edge app-mode / browser window on the SAME server.
+        # Stop only the native tray + child windows and re-raise; keep httpd alive.
         if icon is not None:
             try:
                 icon.stop()
@@ -1120,15 +1161,26 @@ def run_native_window(url, httpd):
             _destroy_aux_windows()
         except Exception:
             pass
+        raise
+    # Window opened and was closed normally -> full teardown + HARD exit.
+    if icon is not None:
         try:
-            httpd.shutdown()
+            icon.stop()
         except Exception:
             pass
-        # HARD exit: pywebview/WebView2/.NET can leave a non-daemon message pump
-        # alive after the window closes, leaving a headless FRAGROUTE process
-        # holding the exe lock. Force the whole process (and its child threads)
-        # down so closing the window actually quits the app.
-        os._exit(0)
+    try:
+        _destroy_aux_windows()
+    except Exception:
+        pass
+    try:
+        httpd.shutdown()
+    except Exception:
+        pass
+    # HARD exit: pywebview/WebView2/.NET can leave a non-daemon message pump
+    # alive after the window closes, leaving a headless FRAGROUTE process
+    # holding the exe lock. Force the whole process (and its child threads)
+    # down so closing the window actually quits the app.
+    os._exit(0)
 
 
 def _hard_quit(*_a):
@@ -1196,6 +1248,27 @@ def _safe_destroy(window):
         os._exit(0)
 
 
+def _show_url_messagebox(url):
+    """Last-resort UI when there's NO WebView2 runtime AND no browser we can launch.
+    The HTTP server is up, so the app IS running -- we just can't paint a window.
+    Pop a native Windows message box (ctypes only, needs no browser) telling the user
+    the address to open in any browser, plus how to get the built-in window next time.
+    Without this the customer sees 'nothing happened' and assumes the app is broken."""
+    msg = ("Fragnetic is running.\n\n"
+           "Open this address in any web browser:\n\n    %s\n\n"
+           "For the built-in app window next time, install the free Microsoft Edge "
+           "WebView2 runtime (one-time): https://aka.ms/webview2" % url)
+    try:
+        if os.name == "nt":
+            import ctypes
+            # MB_ICONINFORMATION | MB_SETFOREGROUND
+            ctypes.windll.user32.MessageBoxW(0, msg, "Fragnetic is running", 0x40 | 0x10000)
+        else:
+            print(msg)
+    except Exception:
+        print(msg)
+
+
 def run_appmode_window(url, httpd):
     """Fallback: Edge/Chrome chromeless window + tray (quit only)."""
     browser = find_browser_appmode()
@@ -1216,7 +1289,18 @@ def run_appmode_window(url, httpd):
         except Exception:
             browser = None
     if not browser:
-        webbrowser.open(url)
+        # No Chromium browser to host an app-window. Open the URL in whatever the
+        # default browser is (the UI is a plain local web page, so any browser works).
+        opened = False
+        try:
+            opened = bool(webbrowser.open(url))
+        except Exception:
+            opened = False
+        if not opened:
+            # TRULY stripped box: no WebView2, no Chromium browser, and no default
+            # browser we can launch. The server IS running -- make sure the customer
+            # knows that and how to reach it, instead of a silent "nothing happened".
+            _show_url_messagebox(url)
 
     stop = threading.Event()
 

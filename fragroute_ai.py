@@ -788,6 +788,8 @@ def ai_chat(message, history=None, ctx=None):
             pass
     return {"ok": True, "tool": None, "fallback": True,
             "reply": ("The local AI model isn't loaded right now, so I can't answer "
-                      "free-form. I can still help precisely with live data: best "
+                      "free-form. If this is your first run, download the coach model "
+                      "in the Setup tab (it picks the size that fits your GPU). "
+                      "Meanwhile I can still help precisely with live data: best "
                       "region/ping, your queue stats, session summary, game state, or "
                       "what I've learned. (\"help\" lists everything.)")}

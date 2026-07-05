@@ -1332,7 +1332,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "19.6"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "19.8"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 # Lemon Squeezy checkout link (the app's Buy/Unlock buttons open this in the system
 # browser). Get it from your LS dashboard -> Products -> "Share" / checkout link.
@@ -2657,6 +2657,54 @@ def _game_connections(pids):
     return conns
 
 
+def _game_guard_pids():
+    """PIDs of the anti-cheat COMPANION process (NetEase NEAC -- observed live as
+    'FragNeacClient.exe'). It runs SEPARATELY from the game and holds its own
+    connection to an anti-cheat server that sits in the player's HOME-region cloud
+    range (observed: 8.221.58.114:7777, inside the us-east block). Matched by a
+    'neac'/'anticheat' name SUBSTRING so it survives version-specific renames."""
+    pids = set()
+    if OS != "Windows":
+        return pids
+    try:
+        out = subprocess.run(["tasklist", "/fo", "csv", "/nh"],
+                             capture_output=True, text=True, timeout=6,
+                             **_NO_WINDOW_KW).stdout
+        for line in out.splitlines():
+            cols = [c.strip('" ') for c in line.split('","')]
+            if len(cols) < 2 or not cols[1].isdigit():
+                continue
+            exe = cols[0].strip('" ').lower()
+            if "neac" in exe or "anticheat" in exe:
+                pids.add(cols[1])
+    except Exception:
+        pass
+    return pids
+
+
+def live_game_infra_ips():
+    """The set of PUBLIC remote IPs the FragPunk ecosystem is talking to RIGHT NOW
+    -- the game client (lobby :11000, GCP matchmaking backend :443, Frankfurt
+    account backend :18110, the current match session + gameplay servers) AND the
+    anti-cheat process. A region lock must NEVER firewall any of these, even when
+    one falls inside a blocked region's CIDR (the anti-cheat + gameplay servers
+    observed live sit in the player's HOME-region block on non-whitelisted ports).
+    Carving these exact /32s out of the block map makes the lock safe-by-
+    construction instead of relying on a hardcoded port whitelist. Returns a set
+    of dotted-quad IP strings (empty if the game isn't running / can't be read)."""
+    ips = set()
+    try:
+        pids = set(_find_game_pids()) | _game_guard_pids()
+        if not pids:
+            return ips
+        for host, _port, _proto, _state in _game_connections(pids):
+            if host and not _is_private_ip(host):
+                ips.add(host)
+    except Exception:
+        pass
+    return ips
+
+
 # Ports that are never a game server (web/API/CDN). The game keeps a persistent
 # HTTPS backend connection open the whole session; it must never be mistaken for
 # the match server.
@@ -2776,7 +2824,18 @@ def _classify_game(conns):
     lobby = (max(infra_now, key=age) if infra_now
              else (max(game, key=age) if game else None))
     if others:
-        match_srv = max(others, key=age)          # the most stable non-infra TCP conn
+        # We're in a match (a stable non-infra TCP session confirms it). BUT the TCP
+        # "session" server stays on your HOME matchmaking backend (e.g. us-east) even
+        # when you pick a different region in the in-game server menu -- it's the UDP
+        # GAMEPLAY flow that follows your choice. Verified live: picking "South America"
+        # moved gameplay to a Sao Paulo GCP server (35.199.72.61) while the TCP session
+        # stayed us-east (8.221.51.239). Reading the TCP server therefore reported the
+        # WRONG region. So when we have a live UDP gameplay server, report IT as the
+        # authoritative "where you're actually playing" server. The 20s UDP gate is not
+        # needed here -- the TCP session already proves we're in a match, so the UDP
+        # flow can't be phantom lobby/party noise (that gate only guards the no-TCP case).
+        udp_play = [hp for hp in udp_game if age(hp) >= _MATCH_MIN_AGE_S]
+        match_srv = (max(udp_play, key=age) if udp_play else max(others, key=age))
         return "match", match_srv, lobby
     # FALLBACK: no TCP match server, but a persistent UDP GAMEPLAY server means you're
     # in a match (the TCP session may be brief / blocked). Report it so the live host
@@ -3625,15 +3684,60 @@ def _ip_to_24(ip):
     return "%s.%s.%s.0/24" % (a, b, c)
 
 
+def _cidrs_minus_ips(cidrs, protect_ips):
+    """Return `cidrs` with each protected /32 SURGICALLY removed -- a broad block
+    like 8.221.48.0/20 that happens to contain the live anti-cheat IP 8.221.58.114
+    is split into the minimal set of sub-CIDRs covering everything EXCEPT that
+    address. Keeps the region lock effective while guaranteeing we never firewall
+    an IP the game is actively using. Pure stdlib (ipaddress)."""
+    import ipaddress
+    protect = set()
+    for ip in (protect_ips or []):
+        try:
+            protect.add(ipaddress.ip_address(ip))
+        except Exception:
+            pass
+    if not protect:
+        return list(cidrs)
+    out = []
+    for c in cidrs:
+        try:
+            net = ipaddress.ip_network(c, strict=False)
+        except Exception:
+            out.append(c)                       # unparseable -> leave untouched
+            continue
+        hits = [ipaddress.ip_network("%s/32" % ip) for ip in protect if ip in net]
+        if not hits:
+            out.append(c)
+            continue
+        pieces = [net]
+        for ipnet in hits:
+            nxt = []
+            for pc in pieces:
+                if ipnet.subnet_of(pc):
+                    nxt.extend(pc.address_exclude(ipnet))
+                else:
+                    nxt.append(pc)
+            pieces = nxt
+        out.extend(str(p) for p in pieces)
+    return out
+
+
 def region_block_map(target_region):
     """Build {region_id: [cidr,...]} for every region EXCEPT `target_region`, so
     applying it forces matchmaking onto the target. Merges the curated seed table
     with the /24s we've LEARNED from real matches (tightens the more you play).
-    The lobby :11000 / backend :18110 / web :443 are protected by PORT in the lock
-    module, so it's safe even when a blocked region shares a prefix with the lobby."""
+
+    SAFETY: every IP the game ecosystem is talking to RIGHT NOW (lobby, GCP/Frankfurt
+    backends, current match/gameplay servers, and the NEAC anti-cheat) is carved
+    OUT of the block -- so a lock can never sever the anti-cheat or a live session,
+    even when those sit inside a blocked region's range on a non-whitelisted port
+    (the exact hazard observed live: anti-cheat 8.221.58.114:7777 in the us-east
+    block). Port whitelisting (:443/:7777/:11000/:18110) is the second layer."""
     target = (target_region or "").strip()
     regions = (load_servers().get("regions", {}) or {})
     all_rids = set(regions.keys()) | set(_REGION_SEED_CIDRS.keys())
+    protect = live_game_infra_ips()             # never firewall what the game needs NOW
     block = {}
     for rid in all_rids:
         if not rid or rid == target:
@@ -3645,7 +3749,9 @@ def region_block_map(target_region):
             except Exception:
                 pass
         if cidrs:
-            block[rid] = sorted(cidrs)
+            safe = _cidrs_minus_ips(sorted(cidrs), protect)
+            if safe:
+                block[rid] = sorted(set(safe))
     return block
 
 
@@ -7600,6 +7706,10 @@ class Handler(BaseHTTPRequestHandler):
                                "cidrCount": sum(len(v) for v in bmap.values()),
                                "rules": [{"region": p["region"], "proto": p["proto"],
                                           "cidrs": p["cidrs"]} for p in plan],
+                               # IPs the game is using NOW that we carved OUT of the block
+                               # (anti-cheat / lobby / backend / live session) -- shown so
+                               # the user can see nothing they depend on gets firewalled.
+                               "protectedIps": sorted(live_game_infra_ips()),
                                "whitelistTcpPorts": fragroute_regionlock.WHITELIST_TCP_PORTS})
 
         if path == "/api/capture/audiotest":

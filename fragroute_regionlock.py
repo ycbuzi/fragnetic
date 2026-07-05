@@ -41,9 +41,14 @@ from pathlib import Path
 APP_REGIONLOCK_BUILD = "rlock-1"
 
 RULE_PREFIX = "FragneticRegionLock"
-# TCP ports that must ALWAYS stay open (lobby / backend / web). UDP has no such needs
-# -- the lobby/backend/web are all TCP -- so UDP for a blocked region is fully blocked.
-WHITELIST_TCP_PORTS = [443, 11000, 18110]
+# TCP ports that must ALWAYS stay open (web / anti-cheat / lobby / backend). UDP has
+# no such needs -- these services are all TCP -- so UDP for a blocked region is fully
+# blocked. :7777 is the NetEase anti-cheat (NEAC) control port, observed live in the
+# player's HOME-region cloud range; never block it or the anti-cheat drops mid-match
+# (kick / account flag). The engine ALSO carves the anti-cheat's live IP out of the
+# block map by /32, so this port entry is the second layer for the "lock applied
+# before the game launched" case (no live connection to read yet).
+WHITELIST_TCP_PORTS = [443, 7777, 11000, 18110]
 
 STATE_DIR = None                     # set by engine (folder that holds the exe/state)
 _LOCK = threading.Lock()
