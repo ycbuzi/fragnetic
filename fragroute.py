@@ -1332,7 +1332,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "19.9"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "20.0"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 # Lemon Squeezy checkout link (the app's Buy/Unlock buttons open this in the system
 # browser). Get it from your LS dashboard -> Products -> "Share" / checkout link.
@@ -2583,6 +2583,7 @@ _NOT_THE_GAME = ("fragroute", "python", "pythonw", "cmd.exe", "conhost")
 # small cache so we don't hammer the geo service: ip -> (info_dict, ts)
 _GEO_CACHE = {}
 _GEO_TTL = 3600  # an IP's location doesn't change within an hour
+_GEO_CACHE_MAX = 1024   # cap entries so a long multi-day session can't grow it forever
 
 # Offline fallback: very rough IP-block -> region. Only used when the online
 # lookup fails (no internet / blocked). Cloud game servers cluster in known
@@ -2983,6 +2984,15 @@ def _geo_lookup(ip):
                 "source": "offline"}
 
     _GEO_CACHE[ip] = (info, now)
+    # BOUND the cache: without this it only ever grows (the TTL gates reads, not size),
+    # so a multi-day session slowly accumulates an entry per distinct server IP. When we
+    # cross the cap, drop expired entries first, then the oldest, keeping fresh lookups.
+    if len(_GEO_CACHE) > _GEO_CACHE_MAX:
+        for _k in [k for k, v in list(_GEO_CACHE.items()) if now - v[1] >= _GEO_TTL]:
+            _GEO_CACHE.pop(_k, None)
+        if len(_GEO_CACHE) > _GEO_CACHE_MAX:
+            for _k, _v in sorted(_GEO_CACHE.items(), key=lambda kv: kv[1][1])[:len(_GEO_CACHE) - _GEO_CACHE_MAX]:
+                _GEO_CACHE.pop(_k, None)
     return info
 
 
@@ -4293,7 +4303,8 @@ def get_setting(key, default=None):
 _BACKUP_FILES = ["fragroute_mode_learning.json", "fragroute_settings.json",
                  "fragroute_queue_log.json", "fragroute_rank.json",
                  "fragroute_replays.json", "fragroute_weapon_skins.json",
-                 "fragroute_icons.json", "fragroute_persona.json"]
+                 "fragroute_icons.json", "fragroute_persona.json",
+                 "fragroute_skins_owned.json"]
 
 
 def _data_dir():
@@ -6732,14 +6743,15 @@ def weapon_skin_add(weapon, name, label, image):
 
 
 def weapon_skin_get(sid):
-    data = _load_weapon_skins()
-    for rec in (data.get("weapons") or {}).values():
-        for s in (rec.get("skins") or []):
-            if s.get("id") == sid:
-                try:
-                    return _b64.b64decode(s["data"]), s.get("mime", "image/jpeg")
-                except Exception:
-                    return None
+    # check the customer's own uploads first, then the shipped reference catalog
+    for src in (_load_weapon_skins(), _load_skins_catalog()):
+        for rec in (src.get("weapons") or {}).values():
+            for s in (rec.get("skins") or []):
+                if s.get("id") == sid:
+                    try:
+                        return _b64.b64decode(s["data"]), s.get("mime", "image/jpeg")
+                    except Exception:
+                        return None
     return None
 
 
@@ -6754,6 +6766,119 @@ def weapon_skin_delete(sid):
                 _save_weapon_skins(data)
                 return {"ok": True}
     return {"ok": False, "message": "not found"}
+
+
+# ---- SHIPPED SKIN CATALOG + per-customer "owned" marks --------------------
+# The owner's captured gallery ships as a READ-ONLY reference catalog
+# (fragroute_skins_catalog.json, same JSON format as the user file). Every customer
+# browses the full catalog and just checks off what they own -- so the locker is
+# useful on day one even if they never take a screenshot. Ownership is a tiny
+# per-customer file (fragroute_skins_owned.json -> {skinId: true}); the catalog is
+# never modified. Images are served by id through weapon_skin_get (which now also
+# looks in the catalog).
+SKINS_CATALOG_PATH = None      # set in main(): bundled reference next to the exe
+SKINS_OWNED_PATH = None        # set in main(): per-customer owned marks (backed up)
+_CATALOG_CACHE = {"loaded": False, "data": {"weapons": {}}, "mtime": 0.0}
+_OWNED_CACHE = {"loaded": False, "data": {}, "mtime": 0.0}
+_OWNED_LOCK = threading.Lock()
+
+
+def _load_skins_catalog():
+    p = SKINS_CATALOG_PATH
+    try:
+        mt = os.path.getmtime(p) if (p and Path(p).exists()) else 0.0
+    except Exception:
+        mt = 0.0
+    if _CATALOG_CACHE["loaded"] and _CATALOG_CACHE.get("mtime") == mt:
+        return _CATALOG_CACHE["data"]
+    data = {"weapons": {}}
+    try:
+        if p and Path(p).exists():
+            loaded = json.loads(Path(p).read_text(encoding="utf-8"))
+            if isinstance(loaded, dict) and isinstance(loaded.get("weapons"), dict):
+                data = loaded
+    except Exception as e:
+        diag("skins", False, msg="catalog load", exc=e)
+    _CATALOG_CACHE.update({"loaded": True, "data": data, "mtime": mt})
+    return data
+
+
+def _load_owned():
+    p = SKINS_OWNED_PATH
+    try:
+        mt = os.path.getmtime(p) if (p and Path(p).exists()) else 0.0
+    except Exception:
+        mt = 0.0
+    if _OWNED_CACHE["loaded"] and _OWNED_CACHE.get("mtime") == mt:
+        return _OWNED_CACHE["data"]
+    data = {}
+    try:
+        if p and Path(p).exists():
+            loaded = json.loads(Path(p).read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                data = {k: True for k, v in loaded.items() if v}
+    except Exception:
+        data = {}
+    _OWNED_CACHE.update({"loaded": True, "data": data, "mtime": mt})
+    return data
+
+
+def _save_owned(data):
+    if not SKINS_OWNED_PATH:
+        return
+    try:
+        tmp = str(SKINS_OWNED_PATH) + ".tmp"
+        Path(tmp).write_text(json.dumps(data), encoding="utf-8")
+        os.replace(tmp, SKINS_OWNED_PATH)
+        _OWNED_CACHE["loaded"] = False      # force reload with the new mtime
+    except Exception as e:
+        diag("skins", False, msg="owned save", exc=e)
+
+
+def skin_set_owned(sid, owned):
+    sid = (sid or "").strip()
+    if not sid:
+        return {"ok": False, "message": "missing id"}
+    with _OWNED_LOCK:
+        data = dict(_load_owned())
+        if owned:
+            data[sid] = True
+        else:
+            data.pop(sid, None)
+        _save_owned(data)
+    return {"ok": True, "id": sid, "owned": bool(owned)}
+
+
+def skins_catalog_manifest():
+    """Shipped catalog grouped by weapon, each skin flagged owned/not, PLUS the
+    customer's own uploads (always owned). Metadata only -- images via /img."""
+    cat = _load_skins_catalog()
+    owned = _load_owned()
+    user = _load_weapon_skins()
+    out = {}
+    owned_n = 0
+    total = 0
+    for slug, rec in (cat.get("weapons") or {}).items():
+        skins = []
+        for s in (rec.get("skins") or []):
+            sid = s.get("id")
+            is_owned = bool(owned.get(sid))
+            owned_n += 1 if is_owned else 0
+            total += 1
+            skins.append({"id": sid, "label": s.get("label", ""), "owned": is_owned,
+                          "catalog": True, "w": s.get("w"), "h": s.get("h")})
+        out[slug] = {"name": rec.get("name", slug), "skins": skins}
+    for slug, rec in (user.get("weapons") or {}).items():
+        dst = out.setdefault(slug, {"name": rec.get("name", slug), "skins": []})
+        have = {sk["id"] for sk in dst["skins"]}
+        for s in (rec.get("skins") or []):
+            sid = s.get("id")
+            if sid in have:
+                continue
+            total += 1; owned_n += 1
+            dst["skins"].append({"id": sid, "label": s.get("label", ""), "owned": True,
+                                 "catalog": False, "w": s.get("w"), "h": s.get("h")})
+    return {"weapons": out, "count": total, "owned": owned_n}
 
 
 # ======================= LOCKER (skin gallery) =============================
@@ -8033,8 +8158,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(fragroute_hardware.status())
 
         if path == "/api/weaponskins":
-            # user's per-weapon skin gallery (metadata only; images via /img)
-            return self._json(weapon_skins_manifest())
+            # SHIPPED skin catalog + the customer's own uploads, each flagged owned/not
+            # (metadata only; images via /img). Works day-one without any screenshots.
+            return self._json(skins_catalog_manifest())
 
         if path == "/api/weaponskins/img":
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
@@ -8725,6 +8851,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/weaponskins/delete":
             return self._json(weapon_skin_delete(body.get("id", "")))
 
+        if path == "/api/weaponskins/own":
+            # mark/unmark a catalog skin as owned by this customer
+            return self._json(skin_set_owned(body.get("id", ""), bool(body.get("owned"))))
+
         if path == "/api/icon/set":
             return self._json(icon_set(body.get("slot", ""), body.get("image", "")))
 
@@ -8786,7 +8916,7 @@ class Handler(BaseHTTPRequestHandler):
 # MAIN
 # ===========================================================================
 def main():
-    global LOG_PATH, SETTINGS_PATH, SERVERS_PATH, PLAYERS_PATH, RANK_PATH, REPLAYS_PATH, SERVERPINGS_PATH, WEAPONSKINS_PATH, ICONS_PATH
+    global LOG_PATH, SETTINGS_PATH, SERVERS_PATH, PLAYERS_PATH, RANK_PATH, REPLAYS_PATH, SERVERPINGS_PATH, WEAPONSKINS_PATH, ICONS_PATH, SKINS_OWNED_PATH, SKINS_CATALOG_PATH
     ap = argparse.ArgumentParser(description="Fragpunk VPN route optimizer")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--configs", default=str(SCRIPT_DIR / "configs"))
@@ -8816,6 +8946,10 @@ def main():
     SERVERPINGS_PATH = STATE["configs_dir"].parent / "fragroute_serverpings.json"
     WEAPONSKINS_PATH = STATE["configs_dir"].parent / "fragroute_weapon_skins.json"
     ICONS_PATH = STATE["configs_dir"].parent / "fragroute_icons.json"
+    SKINS_OWNED_PATH = STATE["configs_dir"].parent / "fragroute_skins_owned.json"
+    # Shipped skin CATALOG (read-only reference) sits next to the exe / source file.
+    _skin_base = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+    SKINS_CATALOG_PATH = _skin_base / "fragroute_skins_catalog.json"
     if fragroute_learning is not None:
         fragroute_learning.LEARNING_PATH = STATE["configs_dir"].parent / "fragroute_mode_learning.json"
     if fragroute_llm is not None:

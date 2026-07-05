@@ -43,6 +43,9 @@ for %%D in (%MODELDIRS%) do (
 
 REM --- reference asset + legal docs (safe) ---
 if exist "%SRC%\fragroute_icons.json" copy /y "%SRC%\fragroute_icons.json" "%OUT%\" >nul
+REM Shipped skin CATALOG -- the reference gallery a customer browses + marks owned.
+REM Public game-skin images, NOT personal data (no accounts/license/history), so safe.
+if exist "%SRC%\fragroute_skins_catalog.json" copy /y "%SRC%\fragroute_skins_catalog.json" "%OUT%\" >nul
 for %%F in (README.md EULA.md PRIVACY.md REFUND.md DISCLAIMER.md THIRD_PARTY_NOTICES.txt) do (
   if exist "%SRC%\%%F" copy /y "%SRC%\%%F" "%OUT%\" >nul
 )

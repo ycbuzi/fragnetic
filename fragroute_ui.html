@@ -684,6 +684,16 @@
   .wpmgr-cell{position:relative;border:1px solid var(--border);border-radius:6px;overflow:hidden;aspect-ratio:16/9;background:#08080d}
   .wpmgr-cell img{width:100%;height:100%;object-fit:cover}
   .wpmgr-del{position:absolute;top:4px;right:4px;background:var(--red);color:#fff;border:0;border-radius:4px;width:22px;height:22px;cursor:pointer;font-size:12px}
+  /* skin-catalog "mark owned" UI */
+  #wpMgrGrid{display:block}
+  .wpmgr-cells{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+  .wpmgr-filter{display:flex;gap:6px;margin-bottom:12px}
+  .wpmgr-filter button{background:#12121a;color:#c9c9d4;border:1px solid var(--border);border-radius:6px;padding:5px 13px;cursor:pointer;font-size:12px}
+  .wpmgr-filter button.on{background:var(--cyan);color:#04141a;border-color:var(--cyan);font-weight:600}
+  .wpmgr-cell.owned{border-color:var(--cyan);box-shadow:inset 0 0 0 1px var(--cyan)}
+  .wpmgr-cell:not(.owned) img{opacity:.42;filter:grayscale(.35)}
+  .wpmgr-own{position:absolute;bottom:5px;left:5px;background:rgba(8,8,14,.82);color:#c9c9d4;border:1px solid var(--border);border-radius:5px;padding:4px 9px;cursor:pointer;font-size:11px;font-weight:600}
+  .wpmgr-cell.owned .wpmgr-own{background:var(--cyan);color:#04141a;border-color:var(--cyan)}
   .wpmgr-stats{display:block;max-width:340px;width:100%;margin:0 auto 12px;border:1px solid var(--border);border-radius:8px}
   .wpmgr-skins-h{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--text-mute);border-top:1px solid var(--border);padding-top:10px;margin-bottom:8px}
   /* Locker */
@@ -3312,6 +3322,12 @@ function _tourShow(){
 }
 function _tourEnd(){ const ov=document.getElementById('tourOv'); if(ov)ov.remove(); SETTINGS.tourDone=true; try{saveSetting('tourDone',true);}catch(e){} }
 function _wpSlug(n){return String(n||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');}
+function _wpNote(){
+  const el=document.getElementById('wpNote'); if(!el)return;
+  const W=(_WEAPONS&&_WEAPONS.weapons)||{}; let total=0; for(const c in W)total+=(W[c]||[]).length;
+  const cN=(_WPSKINS&&_WPSKINS.count)||0, oN=(_WPSKINS&&_WPSKINS.owned)||0;
+  el.textContent=total+' weapons · '+cN+' catalog skins'+(cN?' · you own '+oN+' ('+Math.round(100*oN/cN)+'%)':'');
+}
 function loadWeapons(force){
   Promise.all([
     (_WEAPONS&&!force)?Promise.resolve(_WEAPONS):fetch('/api/weapons').then(r=>r.json()),
@@ -3356,8 +3372,7 @@ function renderWeapons(){
     return '<div class="wp-cat" style="grid-column:1/-1"><div class="wp-cat-h">'+ti+_esc(cl)+' · '+items.length+'</div>'+
       '<div class="wp-grid">'+cards+'</div></div>';
   }).join('');
-  const note=document.getElementById('wpNote');
-  if(note)note.textContent=total+' weapons · '+withSkins+' with skins'+((_WPSKINS&&_WPSKINS.count)?' · '+_WPSKINS.count+' images':'');
+  _wpNote();
   _wpStartShuffle();
 }
 // staggered auto-shuffle of each card's skins; only while the tab is open & visible
@@ -3403,17 +3418,30 @@ function _wpAddSkin(sg,name){
   };
   inp.click();
 }
-function _wpManage(sg){
-  const rec=(_WPSKINS.weapons||{})[sg]; if(!rec){return;}
-  const ov=document.getElementById('wpMgrOverlay');
-  document.getElementById('wpMgrTitle').textContent=rec.name+' — '+(rec.skins||[]).length+' skin(s)';
+let _wpMgrSg=null,_wpMgrFilter='all';
+function _wpRenderMgr(){
+  const sg=_wpMgrSg,rec=(_WPSKINS.weapons||{})[sg]; if(!rec)return;
+  const all=rec.skins||[], ownedN=all.filter(s=>s.owned).length;
+  document.getElementById('wpMgrTitle').textContent=rec.name+' — '+ownedN+' / '+all.length+' owned';
   const st=document.getElementById('wpMgrStats');
   if(rec.hasStats){ st.src='/api/weaponskins/stats?weapon='+encodeURIComponent(sg); st.style.display=''; }
   else { st.style.display='none'; st.removeAttribute('src'); }
-  const grid=document.getElementById('wpMgrGrid');
-  grid.innerHTML=(rec.skins||[]).map(s=>'<div class="wpmgr-cell"><img loading="lazy" src="/api/weaponskins/img?id='+encodeURIComponent(s.id)+'"><button class="wpmgr-del" data-del="'+s.id+'" title="Delete">✕</button></div>').join('')||'<div class="an-empty">No skins. Use ＋ to add.</div>';
+  let shown=all;
+  if(_wpMgrFilter==='owned') shown=all.filter(s=>s.owned);
+  else if(_wpMgrFilter==='missing') shown=all.filter(s=>!s.owned);
+  const bar='<div class="wpmgr-filter">'+[['all','All'],['owned','Owned'],['missing','Missing']].map(f=>'<button data-wpf="'+f[0]+'"'+(f[0]===_wpMgrFilter?' class="on"':'')+'>'+f[1]+'</button>').join('')+'</div>';
+  const cells=shown.map(s=>'<div class="wpmgr-cell'+(s.owned?' owned':'')+'">'
+    +'<img loading="lazy" src="/api/weaponskins/img?id='+encodeURIComponent(s.id)+'">'
+    +'<button class="wpmgr-own" data-own="'+s.id+'" data-cur="'+(s.owned?1:0)+'">'+(s.owned?'✓ Owned':'Mark owned')+'</button>'
+    +(s.catalog?'':'<button class="wpmgr-del" data-del="'+s.id+'" title="Delete your upload">✕</button>')
+    +'</div>').join('')||'<div class="an-empty">Nothing in this filter.</div>';
+  document.getElementById('wpMgrGrid').innerHTML=bar+'<div class="wpmgr-cells">'+cells+'</div>';
   document.getElementById('wpMgrAdd').onclick=()=>_wpAddSkin(sg,rec.name);
-  ov.classList.add('show');
+}
+function _wpManage(sg){
+  if(!((_WPSKINS.weapons||{})[sg]))return;
+  _wpMgrSg=sg; _wpMgrFilter='all'; _wpRenderMgr();
+  document.getElementById('wpMgrOverlay').classList.add('show');
 }
 document.addEventListener('click',e=>{
   const add=e.target.closest('[data-add]'); if(add){_wpAddSkin(add.dataset.add, (add.closest('.wpcard')||{}).dataset.name||add.dataset.add);return;}
@@ -3423,6 +3451,17 @@ document.addEventListener('click',e=>{
       .then(r=>r.json()).then(()=>{loadWeapons(true);const ov=document.getElementById('wpMgrOverlay');ov.classList.remove('show');toast('Skin deleted','ok');});
     return;
   }
+  const own=e.target.closest('[data-own]'); if(own){
+    const want=own.dataset.cur!=='1';
+    fetch(API+'/api/weaponskins/own',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:own.dataset.own,owned:want})})
+      .then(r=>r.json()).then(()=>{
+        const rec=(_WPSKINS.weapons||{})[_wpMgrSg]; if(rec){const sk=(rec.skins||[]).find(x=>x.id===own.dataset.own); if(sk)sk.owned=want;}
+        if(typeof _WPSKINS.owned==='number')_WPSKINS.owned+=(want?1:-1);
+        _wpRenderMgr(); if(typeof _wpNote==='function')_wpNote();
+      });
+    return;
+  }
+  const wpf=e.target.closest('[data-wpf]'); if(wpf){ _wpMgrFilter=wpf.dataset.wpf; _wpRenderMgr(); return; }
   if(e.target.id==='wpMgrClose'||e.target.id==='wpMgrOverlay'){document.getElementById('wpMgrOverlay').classList.remove('show');}
 });
 document.getElementById('lcSearch').addEventListener('input',()=>renderLancers());

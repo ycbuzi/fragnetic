@@ -165,6 +165,8 @@ REM  servers, settings, etc.) -- those accumulate as they play. Only seed the
 REM  queue log if dist\ doesn't already have one.
 if exist configs xcopy /e /i /y configs "dist\configs" >nul
 if exist fragroute_queue_log.json if not exist "dist\fragroute_queue_log.json" copy /y fragroute_queue_log.json "dist\" >nul
+REM Shipped skin catalog -- the reference gallery next to the exe (read by machine_id-based path)
+if exist fragroute_skins_catalog.json copy /y fragroute_skins_catalog.json "dist\" >nul
 if exist README.md copy /y README.md "dist\" >nul
 if exist EULA.md copy /y EULA.md "dist\" >nul
 if exist PRIVACY.md copy /y PRIVACY.md "dist\" >nul
