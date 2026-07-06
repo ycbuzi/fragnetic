@@ -240,10 +240,27 @@ def grab_frame(hwnd, timeout_s=2.0):
             return None
         _method(ctypes, pstat, 2, ctypes.c_ulong)()
 
-        # session (slot 10 CreateCaptureSession) + StartCapture (slot 6)
+        # session (slot 10 CreateCaptureSession)
         if _method(ctypes, pool, 10, c_long, c_void_p, POINTER(c_void_p))(
                 item, byref(session)) < 0 or not session:
             return None
+        # Best-effort: kill WGC's default YELLOW capture border and cursor before we
+        # start -- a border drawn around the game during a match would be maddening,
+        # and we don't want the mouse baked into gameplay clips. Both are on newer
+        # session interfaces (Win10 2004+/Win11); ignore if unsupported.
+        _s2 = _guid(ctypes, 0x2C39AE40, 0x7D2E, 0x5044,
+                    (0x80, 0x4E, 0x8B, 0x67, 0x99, 0xD4, 0xCF, 0x9E))  # IGraphicsCaptureSession2
+        _s3 = _guid(ctypes, 0xF2CDD966, 0x22AE, 0x5EA1,
+                    (0x95, 0x96, 0x3A, 0x28, 0x93, 0x44, 0xC3, 0xBE))  # IGraphicsCaptureSession3
+        for _iid, _slot in ((_s2, 7), (_s3, 7)):   # put_IsCursorCaptureEnabled / put_IsBorderRequired
+            try:
+                _ss = c_void_p()
+                if _method(ctypes, session, 0, c_long, POINTER(type(_iid)),
+                           POINTER(c_void_p))(byref(_iid), byref(_ss)) >= 0 and _ss.value:
+                    _method(ctypes, _ss, _slot, c_long, ctypes.c_byte)(0)   # set False
+                    _method(ctypes, _ss, 2, ctypes.c_ulong)()              # release
+            except Exception:
+                pass
         _method(ctypes, session, 6, c_long)()   # StartCapture
 
         # ---- poll for a frame (slot 7 TryGetNextFrame) ----
