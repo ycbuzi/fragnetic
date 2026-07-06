@@ -383,7 +383,16 @@ def start(base_dir, opts=None):
                               "buffer_seconds": seg * nseg,
                               "audio": ("loopback" if wasapi_audio else audio_device)}
         if wasapi_audio:
-            amsg = " + audio (system loopback)"
+            # reflect the REAL capture mode: 20.2+ records only FragPunk's audio
+            # (per-process WASAPI loopback); older Windows falls back to the whole
+            # default-output mix. Reading the wrong one would misreport the fix.
+            _amode = ""
+            try:
+                _amode = (fragroute_audio.status() or {}).get("mode") or ""
+            except Exception:
+                _amode = ""
+            amsg = " + audio (%s)" % {"process": "game only",
+                                      "system": "system loopback"}.get(_amode, "game")
         elif audio_device:
             amsg = " + audio (%s)" % audio_device
         else:
