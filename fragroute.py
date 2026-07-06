@@ -7692,8 +7692,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         try:
             self.wfile.write(data)
-        except ConnectionError:   # client disconnected mid-response -- benign
-            pass
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass   # client disconnected mid-response -- benign
 
     def _read_body(self):
         length = int(self.headers.get("Content-Length", 0) or 0)
@@ -7754,12 +7754,14 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._do_GET()
             diag("web", True)
-        except ConnectionError:
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
             # client went away mid-response (browser closed the tab / navigated /
             # a poll was superseded). On Windows this is ConnectionAbortedError
-            # (WinError 10053), which BrokenPipe/ConnectionReset didn't cover, so it
-            # was wrongly logged as a server error and inflated the Health error count.
-            # ConnectionError is the common base of all three -- all benign here.
+            # (WinError 10053), which the old (BrokenPipe, ConnectionReset) tuple
+            # didn't cover, so it was wrongly logged as a server error and inflated
+            # the Health error count. These three are the response-write disconnects;
+            # we deliberately do NOT catch the ConnectionError base (that would also
+            # swallow an outbound ConnectionRefusedError a handler should report).
             pass
         except Exception as e:
             diag("web", False, msg=f"GET {self.path}", exc=e)
@@ -8332,8 +8334,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._do_POST()
             diag("web", True)
-        except ConnectionError:   # client disconnected mid-response -- benign
-            pass
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            pass   # client disconnected mid-response -- benign
         except Exception as e:
             diag("web", False, msg=f"POST {self.path}", exc=e)
             try:
