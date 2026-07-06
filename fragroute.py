@@ -7692,7 +7692,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         try:
             self.wfile.write(data)
-        except (BrokenPipeError, ConnectionResetError):
+        except ConnectionError:   # client disconnected mid-response -- benign
             pass
 
     def _read_body(self):
@@ -7754,7 +7754,12 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._do_GET()
             diag("web", True)
-        except (BrokenPipeError, ConnectionResetError):
+        except ConnectionError:
+            # client went away mid-response (browser closed the tab / navigated /
+            # a poll was superseded). On Windows this is ConnectionAbortedError
+            # (WinError 10053), which BrokenPipe/ConnectionReset didn't cover, so it
+            # was wrongly logged as a server error and inflated the Health error count.
+            # ConnectionError is the common base of all three -- all benign here.
             pass
         except Exception as e:
             diag("web", False, msg=f"GET {self.path}", exc=e)
@@ -8327,7 +8332,7 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self._do_POST()
             diag("web", True)
-        except (BrokenPipeError, ConnectionResetError):
+        except ConnectionError:   # client disconnected mid-response -- benign
             pass
         except Exception as e:
             diag("web", False, msg=f"POST {self.path}", exc=e)
