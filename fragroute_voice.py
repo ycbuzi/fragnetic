@@ -133,7 +133,8 @@ def detect_mic(refresh=False):
     try:
         p = subprocess.run([FFMPEG, "-hide_banner", "-list_devices", "true",
                            "-f", "dshow", "-i", "dummy"],
-                          capture_output=True, text=True, timeout=12, **_NOWIN)
+                          capture_output=True, text=True, errors="replace",
+                          timeout=12, **_NOWIN)
         for line in (p.stderr or "").splitlines():
             m = re.search(r'"([^"]+)"\s*\(audio\)', line)
             if m:
@@ -648,7 +649,8 @@ def transcribe(wav):
     args = [w, "-m", m, "-f", wav, "-nt", "-l", "en", "-ng", "-t", "8",
             "--beam-size", "1", "--best-of", "1", "--no-fallback", "--prompt", prompt]
     try:
-        p = subprocess.run(args, capture_output=True, text=True, timeout=90, **_NOWIN)
+        p = subprocess.run(args, capture_output=True, text=True, errors="replace",
+                           timeout=90, **_NOWIN)
         text = (p.stdout or "").strip()
         # strip any leading [bracketed] tokens whisper sometimes emits
         text = re.sub(r"^\[[^\]]*\]\s*", "", text).strip()

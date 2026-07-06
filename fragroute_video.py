@@ -17,7 +17,9 @@ import subprocess
 import time
 from pathlib import Path
 
-APP_VIDEO_BUILD = "video-1"
+import fragroute_proc as _proc   # orphan-proof helpers (shared Windows Job Object)
+
+APP_VIDEO_BUILD = "video-2"      # video-2: job-adopt ffmpeg transcodes so they can't orphan
 
 FFMPEG = None              # set by engine -> ffmpeg.exe
 CLIPS_DIR = None           # source clips folder
@@ -46,8 +48,11 @@ def _out_dir():
 def _ff(args, timeout=600):
     """Run ffmpeg; return (ok, tail-of-stderr). Never raises."""
     try:
-        p = subprocess.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y"] + args,
-                           capture_output=True, text=True, timeout=timeout, **_NOWIN)
+        # _proc.run job-adopts the ffmpeg child so a long transcode can't orphan if
+        # we're hard-killed mid-encode (a blocking run alone would leave it running).
+        p = _proc.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y"] + args,
+                      capture_output=True, text=True, errors="replace",
+                      timeout=timeout, **_NOWIN)
         return (p.returncode == 0), (p.stderr or p.stdout or "")[-300:]
     except Exception as e:
         return False, str(e)
@@ -77,7 +82,8 @@ def _vcodec():
         enc = ""
         try:
             p = subprocess.run([FFMPEG, "-hide_banner", "-encoders"],
-                               capture_output=True, text=True, timeout=30, **_NOWIN)
+                               capture_output=True, text=True, errors="replace",
+                               timeout=30, **_NOWIN)
             enc = p.stdout or ""
         except Exception:
             pass
@@ -135,7 +141,8 @@ def _has_audio(src):
     own ddagrab clips are video-only; OBS/external clips usually have game audio."""
     try:
         p = subprocess.run([FFMPEG, "-hide_banner", "-i", src],
-                           capture_output=True, text=True, timeout=30, **_NOWIN)
+                           capture_output=True, text=True, errors="replace",
+                           timeout=30, **_NOWIN)
         return "Audio:" in (p.stderr or "")
     except Exception:
         return False

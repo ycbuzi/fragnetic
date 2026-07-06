@@ -1524,7 +1524,8 @@ def setup_status():
     nv = False
     try:
         r = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-                           capture_output=True, text=True, timeout=8, **_NO_WINDOW_KW)
+                           capture_output=True, text=True, errors="replace",
+                           timeout=8, **_NO_WINDOW_KW)
         names = [x.strip() for x in (r.stdout or "").splitlines() if x.strip()]
         nv = bool(names)
         add("gpu", "NVIDIA GPU", nv, ", ".join(names) if nv else "",
@@ -2333,7 +2334,7 @@ def _run(cmd):
     to even launch the command is reported as (False, error_text).
     """
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=30,
+        p = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=30,
                            **_NO_WINDOW_KW)
         out = ((p.stdout or "") + (p.stderr or "")).strip()
         return p.returncode == 0, out
@@ -2359,7 +2360,8 @@ def _installed_tunnel_services():
             ["powershell", "-NoProfile", "-Command",
              "Get-Service 'WireGuardTunnel$*' -ErrorAction SilentlyContinue | "
              "Select-Object -ExpandProperty Name"],
-            capture_output=True, text=True, timeout=10, **_NO_WINDOW_KW).stdout
+            capture_output=True, text=True, errors="replace",
+            timeout=10, **_NO_WINDOW_KW).stdout
         names = []
         for line in out.splitlines():
             line = line.strip()
@@ -2637,7 +2639,8 @@ def _find_game_pids():
             # Linux/mac: match the process NAME (comm), not the full cmdline, and
             # skip anything that's clearly us or an interpreter.
             out = subprocess.run(["ps", "-eo", "pid,comm"],
-                                 capture_output=True, text=True, timeout=6).stdout
+                                 capture_output=True, text=True, errors="replace",
+                                 timeout=6).stdout
             for line in out.splitlines()[1:]:
                 parts = line.split(None, 1)
                 if len(parts) != 2 or not parts[0].isdigit():
@@ -3437,7 +3440,8 @@ def _browser_spawn_deelevated(exe, prof, url):
             exe, prof, url)
         # pass the whole command as ONE arg so runas parses it (no shell quoting)
         r = subprocess.run(["runas", "/trustlevel:0x20000", cmd],
-                           capture_output=True, text=True, timeout=12, **_NO_WINDOW_KW)
+                           capture_output=True, text=True, errors="replace",
+                           timeout=12, **_NO_WINDOW_KW)
         return r.returncode == 0
     except Exception:
         return False
@@ -5011,7 +5015,8 @@ def read_game_overlay():
     try:
         out = subprocess.run(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", sp],
-            capture_output=True, text=True, timeout=12, **_NO_WINDOW_KW).stdout or ""
+            capture_output=True, text=True, errors="replace",
+            timeout=12, **_NO_WINDOW_KW).stdout or ""
     except Exception:
         return {"ok": False}
 
@@ -5082,7 +5087,8 @@ def read_game_mode(tries=1):
                 _MODE_PS_PATH = str(p)
             out = subprocess.run(
                 ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", _MODE_PS_PATH],
-                capture_output=True, text=True, timeout=12, **_NO_WINDOW_KW).stdout or ""
+                capture_output=True, text=True, errors="replace",
+                timeout=12, **_NO_WINDOW_KW).stdout or ""
         except Exception:
             out = ""
         low = out.lower()
@@ -5144,7 +5150,8 @@ def _region_ocr(fx, fy, fw, fh, scale=2, timeout=12):
         out = subprocess.run(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", _REGION_PS_PATH,
              "-fx", str(fx), "-fy", str(fy), "-fw", str(fw), "-fh", str(fh), "-scale", str(scale)],
-            capture_output=True, text=True, timeout=timeout, **_NO_WINDOW_KW).stdout or ""
+            capture_output=True, text=True, errors="replace",
+            timeout=timeout, **_NO_WINDOW_KW).stdout or ""
         return out.strip()
     except Exception:
         return ""

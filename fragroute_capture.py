@@ -29,6 +29,8 @@ import threading
 import time
 from pathlib import Path
 
+import fragroute_proc as _proc   # orphan-proof helpers (shared Windows Job Object)
+
 # WASAPI loopback audio (records the REAL default output, not silent Stereo Mix).
 # Optional -- if unavailable we fall back to the old dshow-loopback path.
 try:
@@ -36,7 +38,7 @@ try:
 except Exception:
     fragroute_audio = None
 
-APP_CAPTURE_BUILD = "cap-2"   # cap-2: WASAPI loopback audio (fixes silent recordings)
+APP_CAPTURE_BUILD = "cap-3"   # cap-3: job-adopt ffmpeg so the recorder can't orphan mid-recording
 
 # Module state (guarded by _LOCK)
 _LOCK = threading.Lock()
@@ -100,7 +102,7 @@ def _run(args, timeout=8):
     """Run ffmpeg with no window; return (rc, stdout+stderr text)."""
     flags = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW
     try:
-        p = subprocess.run(args, capture_output=True, text=True,
+        p = subprocess.run(args, capture_output=True, text=True, errors="replace",
                            timeout=timeout, creationflags=flags)
         return p.returncode, (p.stdout or "") + (p.stderr or "")
     except Exception as e:
@@ -181,7 +183,8 @@ def list_audio_devices(refresh=False):
     if ff:
         try:
             p = subprocess.run([ff, "-hide_banner", "-list_devices", "true", "-f", "dshow", "-i", "dummy"],
-                               capture_output=True, text=True, timeout=15,
+                               capture_output=True, text=True, errors="replace",
+                               timeout=15,
                                creationflags=(0x08000000 if os.name == "nt" else 0))
             import re
             for m in re.finditer(r'"([^"]+)"\s*\(audio\)', p.stderr or ""):
@@ -336,8 +339,10 @@ def start(base_dir, opts=None):
 
         def _launch(adev):
             cmd = _build_capture_cmd(ff, ring, fps, bitrate, encoder, gpu, seg, nseg, audio_device=adev)
-            return subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.DEVNULL, creationflags=flags)
+            p = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, creationflags=flags)
+            _proc.adopt(p)   # OS kills the recorder if we die by any means (no orphan mid-recording)
+            return p
         try:
             # stdin=DEVNULL (+ -nostdin in the cmd): a PIPE stdin makes ffmpeg quit
             # on a spurious EOF/keypress -- that was killing the recorder after ~6s.

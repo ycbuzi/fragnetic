@@ -29,8 +29,8 @@ def _run(cmd, timeout=8):
             si = subprocess.STARTUPINFO()
             si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             cf = 0x08000000  # CREATE_NO_WINDOW
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
-                           startupinfo=si, creationflags=cf)
+        r = subprocess.run(cmd, capture_output=True, text=True, errors="replace",
+                           timeout=timeout, startupinfo=si, creationflags=cf)
         return (r.stdout or "") + (r.stderr or "")
     except Exception:
         return ""
