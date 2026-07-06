@@ -2260,7 +2260,7 @@ def ping_host(host, timeout_ms=1500):
             cmd = ["ping", "-c", "1", "-W", str(timeout_ms), host]
         else:  # Linux: -W is seconds
             cmd = ["ping", "-c", "1", "-W", str(max(1, timeout_ms // 1000)), host]
-        out = subprocess.run(cmd, capture_output=True, text=True,
+        out = subprocess.run(cmd, capture_output=True, text=True, errors="replace",
                              timeout=(timeout_ms / 1000) + 2, **_NO_WINDOW_KW)
         text = out.stdout + out.stderr
         # Match "time=42.1 ms" / "time=42ms" / "time<1ms" / "Average = 42ms"
@@ -2623,8 +2623,8 @@ def _find_game_pids():
     try:
         if OS == "Windows":
             out = subprocess.run(["tasklist", "/fo", "csv", "/nh"],
-                                 capture_output=True, text=True, timeout=6,
-                                 **_NO_WINDOW_KW).stdout
+                                 capture_output=True, text=True, errors="replace",
+                                 timeout=6, **_NO_WINDOW_KW).stdout
             for line in out.splitlines():
                 cols = [c.strip('" ') for c in line.split('","')]
                 if len(cols) < 2 or not cols[1].isdigit():
@@ -2660,7 +2660,8 @@ def _game_connections(pids):
     try:
         if OS == "Windows":
             out = subprocess.run(["netstat", "-ano"], capture_output=True,
-                                 text=True, timeout=8, **_NO_WINDOW_KW).stdout
+                                 text=True, errors="replace", timeout=8,
+                                 **_NO_WINDOW_KW).stdout
             for line in out.splitlines():
                 p = line.split()
                 # TCP  local  remote  STATE  PID   |  UDP  local  remote(*)  PID
@@ -2710,8 +2711,8 @@ def _game_guard_pids():
         return pids
     try:
         out = subprocess.run(["tasklist", "/fo", "csv", "/nh"],
-                             capture_output=True, text=True, timeout=6,
-                             **_NO_WINDOW_KW).stdout
+                             capture_output=True, text=True, errors="replace",
+                             timeout=6, **_NO_WINDOW_KW).stdout
         for line in out.splitlines():
             cols = [c.strip('" ') for c in line.split('","')]
             if len(cols) < 2 or not cols[1].isdigit():
@@ -3066,7 +3067,8 @@ def _refresh_dns_region_hints():
     _DNS_REGION_TS = now
     try:
         out = subprocess.run(["ipconfig", "/displaydns"], capture_output=True,
-                             text=True, timeout=8, **_NO_WINDOW_KW).stdout
+                             text=True, errors="replace", timeout=8,
+                             **_NO_WINDOW_KW).stdout
     except Exception:
         return
     mapping = {}
@@ -4532,8 +4534,21 @@ def _autodetect_tick():
             if committed == "match":
                 AUTODETECT["currentServer"] = server
                 _live_match_watch()      # AI watches the live match (OCR mode/state)
+                # CATCH-UP arm: we're steadily in a match but never armed the recorder
+                # for it -- happens when Fragnetic is opened/restarted mid-match, or a
+                # fast requeue skips the menu->match edge. Arm ONCE (matchArmed guards
+                # against re-arming after a manual stop). We do NOT re-fire match_found,
+                # so no bogus queue time is logged for a match we joined in progress.
+                if (not AUTODETECT.get("matchArmed")
+                        and not AUTODETECT.get("matchIsTraining")
+                        and get_setting("autoRecord", False)
+                        and fragroute_capture is not None
+                        and not fragroute_capture.is_recording()):
+                    AUTODETECT["matchArmed"] = True
+                    capture_auto_start("match (joined in progress)")
             else:
                 LIVE_STATE["inMatch"] = False
+                AUTODETECT["matchArmed"] = False   # left match -> allow next arm
             return
 
         # =================== transition prev -> committed ===================
@@ -4564,6 +4579,7 @@ def _autodetect_tick():
                 capture_match_end(match_dur)   # auto-save final clip (gated; skips short flaps)
                 AUTODETECT["matchStartTs"] = None
                 AUTODETECT["currentServer"] = None
+                AUTODETECT["matchArmed"] = False   # next match may arm again
                 was_training = AUTODETECT.get("matchIsTraining")
                 AUTODETECT["matchIsTraining"] = False
                 # LEARN from this match (skip Training Base / warm-up sessions)
@@ -4628,6 +4644,7 @@ def _autodetect_tick():
                         except Exception:
                             pass
                 capture_auto_start("match")   # arm rolling recorder (gated by autoRecord)
+                AUTODETECT["matchArmed"] = True   # armed for this match (catch-up guard)
                 if get_setting("autoMapCapture", True):
                     threading.Thread(target=_auto_map_shot, daemon=True).start()
             first_of_session = (AUTODETECT["matchesThisSession"] <= 1)
