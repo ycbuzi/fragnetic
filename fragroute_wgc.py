@@ -385,8 +385,12 @@ def capture_clip(hwnd, out_path, seconds, fps=30, ffmpeg="ffmpeg", encoder="h264
         args = [ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
                 "-f", "rawvideo", "-pixel_format", "bgra",
                 "-video_size", "%dx%d" % (w, h), "-framerate", str(int(fps)),
+                # timestamp frames by real arrival time so the clip's duration always
+                # equals wall-clock (Python can't hit an EXACT fps) -- keeps A/V in sync
+                # with the separately-recorded audio; -r re-samples to steady CFR out.
+                "-use_wallclock_as_timestamps", "1",
                 "-i", "pipe:0",
-                "-c:v", encoder, "-pix_fmt", "yuv420p"]
+                "-c:v", encoder, "-r", str(int(fps)), "-pix_fmt", "yuv420p"]
         # NVENC quality/preset that stays cheap on the GPU; generic fallback otherwise.
         if "nvenc" in encoder:
             args += ["-preset", "p4", "-tune", "ll", "-rc", "vbr", "-cq", "23", "-b:v", "0"]

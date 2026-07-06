@@ -294,7 +294,11 @@ def _build_wgc_cmd(ff, ring_dir, w, h, fps, bitrate, encoder, seg_seconds, ring_
     cmd = [ff, "-hide_banner", "-loglevel", "warning", "-y",
            "-f", "rawvideo", "-pixel_format", "bgra",
            "-video_size", "%dx%d" % (int(w), int(h)), "-framerate", str(int(fps)),
-           "-i", "pipe:0", "-c:v", encoder]
+           # stamp frames by real arrival time (Python can't feed an EXACT fps), so the
+           # video's duration equals wall-clock and stays in sync with the audio WAV;
+           # -r below re-samples to steady CFR out.
+           "-use_wallclock_as_timestamps", "1",
+           "-i", "pipe:0", "-c:v", encoder, "-r", str(int(fps))]
     if is_nvenc:
         cmd += ["-preset", "p5", "-tune", "hq"]
     elif encoder == "h264_amf":
@@ -329,6 +333,14 @@ def _start_wgc(ff, ring, hwnd, fps, bitrate, encoder, seg, nseg, flags):
     if not sess:
         return None, None
     w, h = sess["w"], sess["h"]
+    # Prove WGC actually DELIVERS frames for this window before committing to it. Some
+    # cases (exclusive-fullscreen quirks, an occluded/minimized window, a driver issue)
+    # open a valid session but never produce a frame -- without this check the pump would
+    # write black forever and we'd never fall back. No frame in ~1.5s => bail to ddagrab.
+    first = fragroute_wgc._grab(sess, timeout_s=1.5)
+    if first is None:
+        fragroute_wgc._close(sess)
+        return None, None
     try:
         cmd = _build_wgc_cmd(ff, ring, w, h, fps, bitrate, encoder, seg, nseg)
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
@@ -342,7 +354,7 @@ def _start_wgc(ff, ring, hwnd, fps, bitrate, encoder, seg, nseg, flags):
     def _pump():
         interval = 1.0 / float(fps)
         next_t = time.time()
-        last = None
+        last = first        # seed with the proven first frame -> no black at clip start
         blank = b"\x00" * (w * h * 4)
         while not stop_ev.is_set():
             data = fragroute_wgc._grab(sess, timeout_s=interval)
