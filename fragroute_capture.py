@@ -38,7 +38,14 @@ try:
 except Exception:
     fragroute_audio = None
 
-APP_CAPTURE_BUILD = "cap-3"   # cap-3: job-adopt ffmpeg so the recorder can't orphan mid-recording
+# Windows Graphics Capture -- records ONLY the FragPunk window, so windows overlaying
+# the game don't land in the clip. Optional; falls back to ddagrab (whole monitor).
+try:
+    import fragroute_wgc
+except Exception:
+    fragroute_wgc = None
+
+APP_CAPTURE_BUILD = "cap-4"   # cap-4: WGC game-only video capture (overlays excluded), ddagrab fallback
 
 # Module state (guarded by _LOCK)
 _LOCK = threading.Lock()
@@ -278,6 +285,95 @@ def _build_capture_cmd(ff, ring_dir, fps, bitrate, encoder, gpu, seg_seconds, ri
     return cmd
 
 
+def _build_wgc_cmd(ff, ring_dir, w, h, fps, bitrate, encoder, seg_seconds, ring_segments):
+    """ffmpeg command for the WGC path: raw BGRA frames on stdin (fed by the pump
+    thread from the game window) -> NVENC -> the SAME mpegts segment ring the ddagrab
+    path uses, so save/concat/mux downstream is identical. Video-only (audio is the
+    separate WASAPI WAV, muxed on save)."""
+    is_nvenc = encoder.endswith("_nvenc")
+    cmd = [ff, "-hide_banner", "-loglevel", "warning", "-y",
+           "-f", "rawvideo", "-pixel_format", "bgra",
+           "-video_size", "%dx%d" % (int(w), int(h)), "-framerate", str(int(fps)),
+           "-i", "pipe:0", "-c:v", encoder]
+    if is_nvenc:
+        cmd += ["-preset", "p5", "-tune", "hq"]
+    elif encoder == "h264_amf":
+        cmd += ["-usage", "transcoding", "-quality", "speed"]
+    elif encoder == "h264_qsv":
+        cmd += ["-preset", "veryfast"]
+    else:
+        cmd += ["-preset", "ultrafast"]
+    cmd += ["-pix_fmt", "yuv420p", "-b:v", str(bitrate),
+            # a keyframe every segment so the muxer can cut ON TIME (otherwise mpegts
+            # only splits at the next IDR and segments run long -> coarse rolling buffer).
+            "-g", str(max(1, int(fps) * int(seg_seconds))),
+            "-color_range", "tv", "-colorspace", "bt709",
+            "-color_primaries", "bt709", "-color_trc", "bt709",
+            "-f", "segment", "-segment_time", str(int(seg_seconds))]
+    if int(ring_segments) > 0:
+        cmd += ["-segment_wrap", str(int(ring_segments))]
+    cmd += ["-segment_format", "mpegts", "-reset_timestamps", "1",
+            str(Path(ring_dir) / ("seg_%03d.ts" if int(ring_segments) > 0 else "seg_%04d.ts"))]
+    return cmd
+
+
+def _start_wgc(ff, ring, hwnd, fps, bitrate, encoder, seg, nseg, flags):
+    """Open a WGC session on the game window, spawn the stdin-fed ffmpeg, and start a
+    pump thread that writes frames at a steady fps. Returns (proc, state_dict) on
+    success or (None, None) so the caller falls back to ddagrab. The pump reuses the
+    last frame when the window hasn't produced a new one, so timing stays even; per
+    frame it's a ~1ms GPU->CPU copy (measured), negligible for in-game FPS."""
+    if fragroute_wgc is None:
+        return None, None
+    sess = fragroute_wgc._open_session(hwnd)
+    if not sess:
+        return None, None
+    w, h = sess["w"], sess["h"]
+    try:
+        cmd = _build_wgc_cmd(ff, ring, w, h, fps, bitrate, encoder, seg, nseg)
+        p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                             stderr=subprocess.DEVNULL, creationflags=flags)
+    except Exception:
+        fragroute_wgc._close(sess)
+        return None, None
+    _proc.adopt(p)   # OS kills the encoder if we die by any means
+    stop_ev = threading.Event()
+
+    def _pump():
+        interval = 1.0 / float(fps)
+        next_t = time.time()
+        last = None
+        blank = b"\x00" * (w * h * 4)
+        while not stop_ev.is_set():
+            data = fragroute_wgc._grab(sess, timeout_s=interval)
+            if data is not None:
+                last = data
+            try:
+                p.stdin.write(last if last is not None else blank)
+            except (BrokenPipeError, OSError, ValueError):
+                break
+            next_t += interval
+            slp = next_t - time.time()
+            if slp > 0:
+                time.sleep(slp)
+            else:
+                next_t = time.time()   # fell behind -> don't spiral
+        try:
+            p.stdin.close()            # EOF -> ffmpeg finalizes the last segment
+        except Exception:
+            pass
+
+    th = threading.Thread(target=_pump, daemon=True)
+    th.start()
+    # make sure ffmpeg didn't reject the input/encoder immediately
+    time.sleep(0.5)
+    if p.poll() is not None:
+        stop_ev.set()
+        fragroute_wgc._close(sess)
+        return None, None
+    return p, {"session": sess, "thread": th, "stop": stop_ev, "w": w, "h": h}
+
+
 def is_recording():
     p = _STATE["proc"]
     return p is not None and (p.poll() is None)
@@ -343,33 +439,59 @@ def start(base_dir, opts=None):
                                  stderr=subprocess.DEVNULL, creationflags=flags)
             _proc.adopt(p)   # OS kills the recorder if we die by any means (no orphan mid-recording)
             return p
-        try:
+
+        # VIDEO SOURCE -- prefer WGC game-window capture so overlays (browser/Discord
+        # over the game) never land in the clip. Needs the FragPunk window; falls back
+        # to ddagrab (whole monitor) if WGC is unavailable, the window isn't found, or
+        # ffmpeg rejects the stdin feed. Audio is unchanged (separate WASAPI WAV).
+        _STATE["wgc"] = None
+        proc = None
+        video_mode = "screen"
+        if bool(opts.get("gameOnly", True)) and fragroute_wgc is not None and fragroute_wgc.available():
+            try:
+                hwnd = fragroute_wgc.find_fragpunk_hwnd(opts.get("game_pids"))
+            except Exception:
+                hwnd = None
+            if hwnd:
+                try:
+                    proc, wgc_state = _start_wgc(ff, ring, hwnd, fps, bitrate, encoder, seg, nseg, flags)
+                except Exception:
+                    proc, wgc_state = None, None
+                if proc is not None:
+                    _STATE["wgc"] = wgc_state
+                    video_mode = "game"
+        if proc is not None:
+            # WGC path is live; skip the ddagrab launch + its audio/encoder retries.
+            audio_device = None if wasapi_audio else audio_device
+        else:
+            # --- ddagrab fallback: whole-monitor capture (WGC unavailable/no window) ---
             # stdin=DEVNULL (+ -nostdin in the cmd): a PIPE stdin makes ffmpeg quit
             # on a spurious EOF/keypress -- that was killing the recorder after ~6s.
-            proc = _launch(audio_device)
-        except Exception as e:
-            return {"ok": False, "message": "Failed to start ffmpeg: %s" % e}
-        # if audio was requested, make sure it actually started; a bad/busy audio
-        # device makes ffmpeg exit fast -> retry video-only so recording still works.
-        if audio_device:
-            time.sleep(1.3)
-            if proc.poll() is not None:
-                audio_device = None
-                try:
-                    proc = _launch(None)
-                except Exception as e:
-                    return {"ok": False, "message": "Failed to start ffmpeg: %s" % e}
-        # ENCODER fallback: some AMD/Intel drivers reject their HW encoder. If the chosen
-        # one died at startup, retry with software libx264 so recording still works on ANY
-        # machine. (nvenc is reliable, so we don't pay this 1s check on the common path.)
-        if encoder in ("h264_amf", "h264_qsv") and pr.get("software"):
-            time.sleep(1.0)
-            if proc.poll() is not None:
-                encoder = "libx264"
-                try:
-                    proc = _launch(audio_device)
-                except Exception as e:
-                    return {"ok": False, "message": "Failed to start ffmpeg: %s" % e}
+            try:
+                proc = _launch(audio_device)
+            except Exception as e:
+                return {"ok": False, "message": "Failed to start ffmpeg: %s" % e}
+            # if audio was requested, make sure it actually started; a bad/busy audio
+            # device makes ffmpeg exit fast -> retry video-only so recording still works.
+            if audio_device:
+                time.sleep(1.3)
+                if proc.poll() is not None:
+                    audio_device = None
+                    try:
+                        proc = _launch(None)
+                    except Exception as e:
+                        return {"ok": False, "message": "Failed to start ffmpeg: %s" % e}
+            # ENCODER fallback: some AMD/Intel drivers reject their HW encoder. If the
+            # chosen one died at startup, retry with software libx264 so recording still
+            # works on ANY machine. (nvenc is reliable, so we skip this on the common path.)
+            if encoder in ("h264_amf", "h264_qsv") and pr.get("software"):
+                time.sleep(1.0)
+                if proc.poll() is not None:
+                    encoder = "libx264"
+                    try:
+                        proc = _launch(audio_device)
+                    except Exception as e:
+                        return {"ok": False, "message": "Failed to start ffmpeg: %s" % e}
         # if the WASAPI loopback thread died immediately, don't claim we have audio
         if wasapi_audio and fragroute_audio is not None and not fragroute_audio.is_recording():
             wasapi_audio = False
@@ -381,7 +503,9 @@ def start(base_dir, opts=None):
         _STATE["settings"] = {"fps": fps, "bitrate": bitrate, "encoder": encoder,
                               "gpu": gpu, "seg_seconds": seg, "ring_segments": nseg,
                               "buffer_seconds": seg * nseg,
+                              "video": video_mode,   # "game" (WGC) or "screen" (ddagrab)
                               "audio": ("loopback" if wasapi_audio else audio_device)}
+        vmsg = "game window" if video_mode == "game" else "full screen"
         if wasapi_audio:
             # reflect the REAL capture mode: 20.2+ records only FragPunk's audio
             # (per-process WASAPI loopback); older Windows falls back to the whole
@@ -400,7 +524,7 @@ def start(base_dir, opts=None):
         # nseg == 0 => ffmpeg segment_wrap 0 => UNLIMITED segments = full-match record
         # (no rolling overwrite); otherwise it's the rolling N-second highlight buffer.
         mode = "full match" if nseg == 0 else ("rolling %ds buffer" % (seg * nseg))
-        return {"ok": True, "message": "Recording (%s)%s." % (mode, amsg),
+        return {"ok": True, "message": "Recording %s (%s)%s." % (vmsg, mode, amsg),
                 "settings": _STATE["settings"]}
 
 
@@ -411,6 +535,32 @@ def stop():
             fragroute_audio.stop()
         except Exception:
             pass
+    # WGC path: stop the frame pump + close ffmpeg's stdin so it finalizes the last
+    # segment on EOF (a raw terminate would truncate it), then tear down the session.
+    wgc = _STATE.get("wgc")
+    if wgc:
+        try:
+            wgc["stop"].set()
+        except Exception:
+            pass
+        p = _STATE.get("proc")
+        try:
+            th = wgc.get("thread")
+            if th:
+                th.join(timeout=3)          # pump closes stdin on exit -> ffmpeg EOF
+        except Exception:
+            pass
+        try:
+            if p is not None:
+                p.wait(timeout=5)           # let ffmpeg finalize on EOF before terminate
+        except Exception:
+            pass
+        try:
+            if wgc.get("session") and fragroute_wgc is not None:
+                fragroute_wgc._close(wgc["session"])
+        except Exception:
+            pass
+        _STATE["wgc"] = None
     with _LOCK:
         p = _STATE["proc"]
         if p is None:
