@@ -208,6 +208,19 @@ def _rms16(data):
 
 
 def _record_loop(wav_path):
+    # PREFERRED: capture ONLY FragPunk's audio via Win10 2004+ per-process loopback,
+    # so clips don't carry Discord/browser/music. Any failure (old Windows, API error,
+    # game not found) falls through to the whole-desktop loopback below -- the recorder
+    # can never be broken by this, only upgraded.
+    try:
+        import fragroute_procaudio as _pca
+        if _pca.available():
+            _pids = _pca.find_fragpunk_pids()
+            if _pids and _pca.capture(_pids, str(wav_path), lambda: _STATE["stop"], _STATE):
+                return
+    except Exception as _e:
+        _STATE["err_proc"] = str(_e)[:140]
+    _STATE["mode"] = "system"     # recording the whole default output (all apps)
     p = _pa.PyAudio()
     stream = None
     wf = None

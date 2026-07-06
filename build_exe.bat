@@ -134,6 +134,7 @@ echo Building exe ^(about a minute^)...
   --hidden-import fragroute_audio ^
   --hidden-import fragroute_regionlock ^
   --hidden-import fragroute_proc ^
+  --hidden-import fragroute_procaudio ^
   --hidden-import pyaudiowpatch ^
   --collect-all pyaudiowpatch ^
   --hidden-import maxminddb ^
