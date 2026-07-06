@@ -428,6 +428,9 @@ def status():
         "sr": _STATE.get("sr", 0),
         "ch": _STATE.get("ch", 0),
         "err": _STATE.get("err", ""),
+        # "process" = only FragPunk's audio (per-process loopback); "system" = whole
+        # default-output mix (older Windows / process capture unavailable fallback).
+        "mode": _STATE.get("mode", ""),
         "build": APP_AUDIO_BUILD,
     }
 
@@ -436,6 +439,18 @@ def probe(seconds=1.2):
     """Record a short burst from the loopback and return the peak level, so the UI
     can tell the user 'your game audio IS being captured' (or is silent). Does not
     touch the main capture WAV. Safe to call anytime (opens its own device)."""
+    # Prefer the SAME per-process path recordings use, so the test reflects reality
+    # (only FragPunk, not the desktop mix). Falls back to the device probe below.
+    try:
+        import fragroute_procaudio as _pca
+        if _pca.available():
+            _pids = _pca.find_fragpunk_pids()
+            if _pids:
+                _r = _pca.probe(_pids, seconds)
+                if _r is not None:
+                    return _r
+    except Exception:
+        pass
     if not _HAVE:
         return {"ok": False, "message": "pyaudiowpatch not installed", "level": 0.0}
     p = _pa.PyAudio()

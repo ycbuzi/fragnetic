@@ -220,8 +220,11 @@ def capture(pids, wav_path, should_stop, state):
     cap_evt = None
     started = False
     try:
-        ole32.CoInitializeEx(None, _COINIT_MULTITHREADED)
-        com_inited = True
+        # S_OK(0)/S_FALSE(1) => we initialized COM and must CoUninitialize to balance.
+        # RPC_E_CHANGED_MODE(<0) => the thread already had a (different) apartment; COM
+        # is still usable but we must NOT CoUninitialize (we didn't add the ref).
+        _hr_ci = ole32.CoInitializeEx(None, _COINIT_MULTITHREADED)
+        com_inited = (_hr_ci >= 0)
 
         # Build activation params -> PROPVARIANT(VT_BLOB). We try each candidate PID;
         # the first that activates + initializes wins.
@@ -253,6 +256,10 @@ def capture(pids, wav_path, should_stop, state):
                 continue
             # wait for the async ActivateCompleted callback (SetEvent)
             if k32.WaitForSingleObject(done_evt, 3000) != _WAIT_OBJECT_0:
+                try:
+                    _method(ctypes, op, 2, ctypes.c_ulong)()   # Release the leaked async op
+                except Exception:
+                    pass
                 continue
             # GetActivateResult(op, &hrActivate, &IUnknown*) -- vtable slot 3
             get_result = _method(ctypes, op, 3, ctypes.c_long,
@@ -407,6 +414,43 @@ def capture(pids, wav_path, should_stop, state):
                 ole32.CoUninitialize()
             except Exception:
                 pass
+
+
+def probe(pids, seconds=1.2):
+    """Short per-process capture that returns a peak-level dict for the UI 'test game
+    audio' button, so the test measures the SAME audio a real recording captures (just
+    the game), not the whole-desktop mix. Returns None if it couldn't run (caller then
+    falls back to the device-loopback probe)."""
+    if not _IS_WIN or not pids:
+        return None
+    import tempfile
+    tmp = os.path.join(tempfile.gettempdir(), "fragroute_probe_proc.wav")
+    deadline = time.time() + max(0.4, seconds)
+    try:
+        if not capture(pids, tmp, lambda: time.time() >= deadline, {}):
+            return None
+    except Exception:
+        return None
+    peak = 0.0
+    try:
+        w = wave.open(tmp, "rb")
+        while True:
+            data = w.readframes(4096)
+            if not data:
+                break
+            peak = max(peak, _rms16(data))
+        w.close()
+    except Exception:
+        pass
+    try:
+        os.remove(tmp)
+    except Exception:
+        pass
+    return {"ok": True, "level": round(peak, 4), "device": "FragPunk (per-process)",
+            "hasSound": peak > 0.004,
+            "message": ("Game audio detected" if peak > 0.004
+                        else "FragPunk isn't making sound right now -- play some game "
+                             "audio and re-test (other apps are correctly excluded)")}
 
 
 def _rms16(data):

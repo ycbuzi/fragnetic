@@ -3171,7 +3171,7 @@ def game_status():
         if since and (time.time() - since) < _LAUNCH_SETTLE_S:
             phase, match_srv = "menu", None
 
-    def _describe(hp):
+    def _describe(hp, proto="TCP"):
         host, port = hp
         geo = _geo_lookup(host)
         # Region sources, best-first, so an OFF-VPN raw match IP still gets named:
@@ -3198,7 +3198,7 @@ def game_status():
         country = geo.get("country") or (learned.get("country") if learned else None)
         where = ", ".join([x for x in (city, country) if x]) or None
         return {
-            "ip": host, "port": port, "proto": "TCP",
+            "ip": host, "port": port, "proto": proto,
             "city": city, "country": country,
             "countryCode": geo.get("countryCode"), "isp": geo.get("isp"),
             "where": where, "regionId": rid,
@@ -3212,11 +3212,22 @@ def game_status():
             "named": bool(where or region),
         }
 
+    # protocol of a detected endpoint, from the live connection set -- so the UDP
+    # gameplay server is reported as UDP (not a hardcoded "TCP"); the match flow
+    # runs over UDP and that's the socket we deliberately pick.
+    def _proto_of(hp):
+        if not hp:
+            return "TCP"
+        for h, pt, pr, st in conns:
+            if h == hp[0] and pt == hp[1]:
+                return pr
+        return "TCP"
+
     # context shown in both states: which region's matchmaking you're on
-    lobby_info = _describe(lobby) if lobby else None
+    lobby_info = _describe(lobby, _proto_of(lobby)) if lobby else None
 
     if phase == "match" and match_srv:
-        server = _describe(match_srv)
+        server = _describe(match_srv, _proto_of(match_srv))
         server["connections"] = len([c for c in conns if c[2] == "TCP"])
         return {"running": True, "state": "in match",
                 "server": server, "lobby": lobby_info}
