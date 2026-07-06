@@ -2503,11 +2503,19 @@ function renderGame(){
   }else{
     if(grid.style.display!=='none')grid.style.display='none';
     if(empty.style.display==='none')empty.style.display='';
-    // tailor the empty line to the state
+    // tailor the empty line to the state -- never blank: show the matchmaking
+    // (lobby) region while running, and "detecting" once a match is starting.
     if(g.running){
-      setText(empty,'Fragpunk is running. Join a match and the live server you\u2019re routed to will show here — region, city, and IP, straight from the game\u2019s own connection.');
+      var lob=g.lobby||null;
+      var reg=lob?((lob.regionName||lob.regionId||'')+(lob.where?(' · '+lob.where):'')):'';
+      var inMatch=(g.state||'').toLowerCase().indexOf('match')>=0;
+      if(reg){
+        setText(empty,(inMatch?'Detecting your match server… ':'')+'Matchmaking region: '+reg+'. Your live match server (region, city, IP) appears here as soon as it connects.');
+      }else{
+        setText(empty,'FragPunk is running. Join a match and the live server you are routed to will show here — region, city, and IP, from the game’s own connection.');
+      }
     }else{
-      setText(empty,'Start Fragpunk and join a match — the live server you\u2019re on will appear here, read straight from the game\u2019s own connection.');
+      setText(empty,'Start FragPunk and join a match — the live server you are on will appear here, read from the game’s own connection.');
     }
   }
 }
@@ -3038,7 +3046,7 @@ function openBuy(){
 // ====================== LANCER + WEAPON CATALOGS ======================
 // Loaded once from the bundled JSON catalogs (served at /api/lancers and
 // /api/weapons). Pure reference data — no polling, no game dependency.
-let _LANCERS=null,_WEAPONS=null;
+let _LANCERS=null,_WEAPONS=null,_LCSKINS={lancers:{}};
 function _esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 let _LPORTRAITS={portraits:{},custom:[]};
 let _LCHANGES={changes:{}};
@@ -3049,8 +3057,9 @@ function loadLancers(force){
   Promise.all([
     needCat?fetch('/api/lancers').then(r=>r.json()):Promise.resolve(_LANCERS),
     fetch('/api/lancers/portraits').then(r=>r.json()).catch(()=>_LPORTRAITS),
-    fetch('/api/lancers/changes').then(r=>r.json()).catch(()=>_LCHANGES)
-  ]).then(([d,p,c])=>{_LANCERS=d||{};_LPORTRAITS=p||_LPORTRAITS;_LCHANGES=c||_LCHANGES;renderLancers();})
+    fetch('/api/lancers/changes').then(r=>r.json()).catch(()=>_LCHANGES),
+    fetch('/api/lancerskins').then(r=>r.json()).catch(()=>({lancers:{}}))
+  ]).then(([d,p,c,ls])=>{_LANCERS=d||{};_LPORTRAITS=p||_LPORTRAITS;_LCHANGES=c||_LCHANGES;_LCSKINS=ls||{lancers:{}};renderLancers();})
     .catch(()=>{document.getElementById('lcGrid').innerHTML='<div class="an-empty">Catalog unavailable.</div>';});
 }
 function _lcChangesHtml(name){
@@ -3068,6 +3077,10 @@ function _lcPortraitHtml(name){
   const P=(_LPORTRAITS&&_LPORTRAITS.portraits)||{};
   const port=P[(name||'').toUpperCase()];
   if(port)return '<div class="lc-portrait" data-pid="'+port.id+'" data-pname="'+_esc(port.label||name)+'"><img loading="lazy" src="/api/locker/thumb?id='+encodeURIComponent(port.id)+'"></div>';
+  // no user-tagged portrait -> show a catalog skin (customers have no Locker yet)
+  const cat=((_LCSKINS&&_LCSKINS.lancers)||{})[(name||'').toUpperCase()];
+  if(cat&&(cat.skins||[]).length){ const s=cat.skins[0];
+    return '<div class="lc-portrait" data-lcmgr="'+_esc((name||'').toUpperCase())+'"><img loading="lazy" src="/api/weaponskins/img?id='+encodeURIComponent(s.id)+'"></div>'; }
   return '<div class="lc-portrait empty">no skin assigned · tag one in Locker</div>';
 }
 function renderLancers(){
@@ -3124,7 +3137,13 @@ function renderLancers(){
   document.getElementById('lcNote').textContent=shown+' Lancers'+(custom.length?' ('+custom.length+' from your Locker)':'')+(q?' · filtered':'')+' · click a portrait to enlarge, the skin count to see them all';
 }
 function _lcSkinCount(name){
-  const n=((_LPORTRAITS&&_LPORTRAITS.counts)||{})[(name||'').toUpperCase()]||0;
+  const key=(name||'').toUpperCase();
+  const cat=((_LCSKINS&&_LCSKINS.lancers)||{})[key];
+  if(cat){
+    const all=cat.skins||[], owned=all.filter(s=>s.owned).length;
+    return '<div class="lc-skincount cat" data-lcmgr="'+_esc(key)+'">'+owned+' / '+all.length+' skins owned ›</div>';
+  }
+  const n=((_LPORTRAITS&&_LPORTRAITS.counts)||{})[key]||0;
   if(!n)return '<div class="lc-skincount none">no skins tagged yet</div>';
   return '<div class="lc-skincount" data-lan="'+_esc(name)+'">'+n+' skin'+(n>1?'s':'')+' in your Locker ›</div>';
 }
@@ -3381,7 +3400,7 @@ function _wpStartShuffle(){
   if(_wpShuffle)return;
   let tick=0;
   _wpShuffle=setInterval(()=>{
-    if(!_wpOnTab()||document.hidden)return;
+    if(!_wpOnTab()||document.hidden||document.body.classList.contains('render-paused'))return;
     tick++;
     document.querySelectorAll('#wpGrid .wpcard-img').forEach((box,idx)=>{
       const imgs=box.querySelectorAll('img'); if(imgs.length<2)return;
@@ -3418,14 +3437,18 @@ function _wpAddSkin(sg,name){
   };
   inp.click();
 }
-let _wpMgrSg=null,_wpMgrFilter='all';
-function _wpRenderMgr(){
-  const sg=_wpMgrSg,rec=(_WPSKINS.weapons||{})[sg]; if(!rec)return;
+// Unified skin manager overlay -- used for BOTH weapon skins and lancer skins.
+let _mgr={kind:null,key:null,rec:null},_wpMgrFilter='all';
+function _mgrRender(){
+  const rec=_mgr.rec; if(!rec)return;
+  const isLancer=_mgr.kind==='lancer';
   const all=rec.skins||[], ownedN=all.filter(s=>s.owned).length;
   document.getElementById('wpMgrTitle').textContent=rec.name+' — '+ownedN+' / '+all.length+' owned';
   const st=document.getElementById('wpMgrStats');
-  if(rec.hasStats){ st.src='/api/weaponskins/stats?weapon='+encodeURIComponent(sg); st.style.display=''; }
+  if(!isLancer && rec.hasStats){ st.src='/api/weaponskins/stats?weapon='+encodeURIComponent(_mgr.key); st.style.display=''; }
   else { st.style.display='none'; st.removeAttribute('src'); }
+  const addBtn=document.getElementById('wpMgrAdd');
+  if(isLancer){ addBtn.style.display='none'; } else { addBtn.style.display=''; addBtn.onclick=()=>_wpAddSkin(_mgr.key,rec.name); }
   let shown=all;
   if(_wpMgrFilter==='owned') shown=all.filter(s=>s.owned);
   else if(_wpMgrFilter==='missing') shown=all.filter(s=>!s.owned);
@@ -3433,16 +3456,12 @@ function _wpRenderMgr(){
   const cells=shown.map(s=>'<div class="wpmgr-cell'+(s.owned?' owned':'')+'">'
     +'<img loading="lazy" src="/api/weaponskins/img?id='+encodeURIComponent(s.id)+'">'
     +'<button class="wpmgr-own" data-own="'+s.id+'" data-cur="'+(s.owned?1:0)+'">'+(s.owned?'✓ Owned':'Mark owned')+'</button>'
-    +(s.catalog?'':'<button class="wpmgr-del" data-del="'+s.id+'" title="Delete your upload">✕</button>')
+    +((!isLancer && s.catalog===false)?'<button class="wpmgr-del" data-del="'+s.id+'" title="Delete your upload">✕</button>':'')
     +'</div>').join('')||'<div class="an-empty">Nothing in this filter.</div>';
   document.getElementById('wpMgrGrid').innerHTML=bar+'<div class="wpmgr-cells">'+cells+'</div>';
-  document.getElementById('wpMgrAdd').onclick=()=>_wpAddSkin(sg,rec.name);
 }
-function _wpManage(sg){
-  if(!((_WPSKINS.weapons||{})[sg]))return;
-  _wpMgrSg=sg; _wpMgrFilter='all'; _wpRenderMgr();
-  document.getElementById('wpMgrOverlay').classList.add('show');
-}
+function _wpManage(sg){ const rec=(_WPSKINS.weapons||{})[sg]; if(!rec)return; _mgr={kind:'weapon',key:sg,rec:rec}; _wpMgrFilter='all'; _mgrRender(); document.getElementById('wpMgrOverlay').classList.add('show'); }
+function _lcManage(key){ const rec=((_LCSKINS&&_LCSKINS.lancers)||{})[key]; if(!rec)return; _mgr={kind:'lancer',key:key,rec:rec}; _wpMgrFilter='all'; _mgrRender(); document.getElementById('wpMgrOverlay').classList.add('show'); }
 document.addEventListener('click',e=>{
   const add=e.target.closest('[data-add]'); if(add){_wpAddSkin(add.dataset.add, (add.closest('.wpcard')||{}).dataset.name||add.dataset.add);return;}
   const mgr=e.target.closest('[data-mgr]'); if(mgr){_wpManage(mgr.dataset.mgr);return;}
@@ -3455,13 +3474,15 @@ document.addEventListener('click',e=>{
     const want=own.dataset.cur!=='1';
     fetch(API+'/api/weaponskins/own',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:own.dataset.own,owned:want})})
       .then(r=>r.json()).then(()=>{
-        const rec=(_WPSKINS.weapons||{})[_wpMgrSg]; if(rec){const sk=(rec.skins||[]).find(x=>x.id===own.dataset.own); if(sk)sk.owned=want;}
-        if(typeof _WPSKINS.owned==='number')_WPSKINS.owned+=(want?1:-1);
-        _wpRenderMgr(); if(typeof _wpNote==='function')_wpNote();
+        const sk=((_mgr.rec&&_mgr.rec.skins)||[]).find(x=>x.id===own.dataset.own); if(sk)sk.owned=want;
+        const store=_mgr.kind==='lancer'?_LCSKINS:_WPSKINS;
+        if(store&&typeof store.owned==='number')store.owned+=(want?1:-1);
+        _mgrRender(); if(_mgr.kind==='weapon'&&typeof _wpNote==='function')_wpNote();
       });
     return;
   }
-  const wpf=e.target.closest('[data-wpf]'); if(wpf){ _wpMgrFilter=wpf.dataset.wpf; _wpRenderMgr(); return; }
+  const wpf=e.target.closest('[data-wpf]'); if(wpf){ _wpMgrFilter=wpf.dataset.wpf; _mgrRender(); return; }
+  const lcm=e.target.closest('[data-lcmgr]'); if(lcm){ _lcManage(lcm.dataset.lcmgr); return; }
   if(e.target.id==='wpMgrClose'||e.target.id==='wpMgrOverlay'){document.getElementById('wpMgrOverlay').classList.remove('show');}
 });
 document.getElementById('lcSearch').addEventListener('input',()=>renderLancers());
@@ -3617,7 +3638,7 @@ function _lkOnTab(){const p=document.querySelector('.tab-pane[data-pane="locker"
 function _lkStartShuffle(){
   if(_lkShuffle)return;let tick=0;
   _lkShuffle=setInterval(()=>{
-    if(!_lkOnTab()||document.hidden)return;tick++;
+    if(!_lkOnTab()||document.hidden||document.body.classList.contains('render-paused'))return;tick++;
     document.querySelectorAll('#lkGrid .wpcard-img[data-lkthumbs]').forEach((box,idx)=>{
       const imgs=box.querySelectorAll('img');if(imgs.length<2)return;
       if((tick+idx)%3!==0)return;
@@ -5020,40 +5041,53 @@ function renderNetGraph(){
   // WebView2 with nothing to repaint, so it stops eating GPU and your in-game
   // FPS recovers. Everything resumes instantly when you alt-tab back.
   let liveTimer=null, statusTimer=null, gameTimer=null;
-  function startLoops(){
-    if(liveTimer)return;                 // already running
-    document.body.classList.remove('render-paused');
-    updateClock();updateLive();renderAutocapture();   // immediate refresh so nothing looks stale
+  // DATA polling -- runs whenever the page is VISIBLE, so a 2nd-monitor user still
+  // gets live game/scout updates. Does NOT touch animations.
+  function startDataLoops(){
+    if(liveTimer)return;
+    updateClock();updateLive();renderAutocapture();
     liveTimer=setInterval(()=>{updateClock();updateLive();renderAutocapture();},1000);
     statusTimer=setInterval(refreshStatus,15000);
-    gameTimer=setInterval(refreshGame,5000);   // live game/server detection
-    refreshGame();                              // and refresh immediately on resume
-    setupAutodetectPoll();                      // poll the backend auto-capture monitor
-    refreshAutodetect();
-    setupScoutPoll();                           // poll the backend scout ranking
-    refreshScout();
-    _brResume();                                // re-show any in-app browser tab
+    gameTimer=setInterval(refreshGame,5000);
+    refreshGame();
+    setupAutodetectPoll();refreshAutodetect();
+    setupScoutPoll();refreshScout();
   }
-  function stopLoops(){
-    document.body.classList.add('render-paused');   // freeze all animation
-    _brSuspend();                                    // stand the browser down (game FPS)
+  function stopDataLoops(){
     if(liveTimer){clearInterval(liveTimer);liveTimer=null;}
     if(statusTimer){clearInterval(statusTimer);statusTimer=null;}
     if(gameTimer){clearInterval(gameTimer);gameTimer=null;}
     if(_autocapTimer){clearInterval(_autocapTimer);_autocapTimer=null;}
     if(_scoutTimer){clearInterval(_scoutTimer);_scoutTimer=null;}
-    // NOTE: the BACKEND auto-capture keeps running while hidden -- we only stop
-    // the UI's polling here. Queue/match times are still logged server-side.
   }
-  function applyVisibility(){
-    if(document.visibilityState==='visible')startLoops();
-    else stopLoops();
+  // RENDER pause -- kills the GPU-heavy work (CSS animations, skin image-shuffle, the
+  // docked in-app browser) whenever Fragnetic is NOT the focused window (i.e. you're
+  // playing the game). CRITICAL: this now triggers on focus/occlusion, not just when
+  // the window is hidden -- so it protects in-game FPS even with the app VISIBLE on a
+  // SECOND MONITOR (the old logic only paused a hidden/occluded window, so a 2nd-monitor
+  // window kept WebView2 compositing on the game GPU -> the reported FPS hit).
+  function setRenderPaused(on){
+    document.body.classList.toggle('render-paused', on);
+    if(on){
+      if(typeof _wpStopShuffle==='function')_wpStopShuffle();
+      if(typeof _lkStopShuffle==='function')_lkStopShuffle();
+      if(typeof _brSuspend==='function')_brSuspend();
+    } else {
+      if(typeof _brResume==='function')_brResume();
+      if(typeof _wpOnTab==='function'&&_wpOnTab()&&typeof _wpStartShuffle==='function')_wpStartShuffle();
+      if(typeof _lkOnTab==='function'&&_lkOnTab()&&typeof _lkStartShuffle==='function')_lkStartShuffle();
+    }
   }
-  document.addEventListener('visibilitychange',applyVisibility);
-  // window focus/blur catches WebView cases where visibilitychange is flaky
-  window.addEventListener('focus',startLoops);
-  window.addEventListener('blur',()=>{ if(document.visibilityState!=='visible')stopLoops(); });
-  applyVisibility();   // set the correct state for however we launched
+  function applyState(){
+    const visible=document.visibilityState==='visible';
+    if(visible)startDataLoops(); else stopDataLoops();
+    // animate only when Fragnetic is BOTH visible and focused; otherwise freeze the GPU work
+    setRenderPaused(!(visible&&document.hasFocus()));
+  }
+  document.addEventListener('visibilitychange',applyState);
+  window.addEventListener('focus',applyState);
+  window.addEventListener('blur',applyState);
+  applyState();
 
   loadNews(false);
 })();

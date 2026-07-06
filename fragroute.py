@@ -1332,7 +1332,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "20.0"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "20.1"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 # Lemon Squeezy checkout link (the app's Buy/Unlock buttons open this in the system
 # browser). Get it from your LS dashboard -> Products -> "Share" / checkout link.
@@ -6743,9 +6743,10 @@ def weapon_skin_add(weapon, name, label, image):
 
 
 def weapon_skin_get(sid):
-    # check the customer's own uploads first, then the shipped reference catalog
-    for src in (_load_weapon_skins(), _load_skins_catalog()):
-        for rec in (src.get("weapons") or {}).values():
+    # customer's own uploads first, then the shipped weapon + lancer catalogs
+    for src in (_load_weapon_skins(), _load_skins_catalog(), _load_lancer_catalog()):
+        groups = src.get("weapons") or src.get("lancers") or {}
+        for rec in groups.values():
             for s in (rec.get("skins") or []):
                 if s.get("id") == sid:
                     try:
@@ -6879,6 +6880,55 @@ def skins_catalog_manifest():
             dst["skins"].append({"id": sid, "label": s.get("label", ""), "owned": True,
                                  "catalog": False, "w": s.get("w"), "h": s.get("h")})
     return {"weapons": out, "count": total, "owned": owned_n}
+
+
+# ---- SHIPPED LANCER-SKIN CATALOG (character skins) ------------------------
+# Same idea as the weapon catalog, for FragPunk's other cosmetic category: the
+# owner's captured lancer skins ship as a read-only reference (fragroute_lancer_
+# catalog.json, keyed by lancer) and customers check off what they own. Shares the
+# owned store + image serving (weapon_skin_get) with the weapon catalog.
+LANCER_CATALOG_PATH = None      # set in main(): bundled reference next to the exe
+_LANCER_CACHE = {"loaded": False, "data": {"lancers": {}}, "mtime": 0.0}
+
+
+def _load_lancer_catalog():
+    p = LANCER_CATALOG_PATH
+    try:
+        mt = os.path.getmtime(p) if (p and Path(p).exists()) else 0.0
+    except Exception:
+        mt = 0.0
+    if _LANCER_CACHE["loaded"] and _LANCER_CACHE.get("mtime") == mt:
+        return _LANCER_CACHE["data"]
+    data = {"lancers": {}}
+    try:
+        if p and Path(p).exists():
+            loaded = json.loads(Path(p).read_text(encoding="utf-8"))
+            if isinstance(loaded, dict) and isinstance(loaded.get("lancers"), dict):
+                data = loaded
+    except Exception as e:
+        diag("skins", False, msg="lancer catalog load", exc=e)
+    _LANCER_CACHE.update({"loaded": True, "data": data, "mtime": mt})
+    return data
+
+
+def lancer_catalog_manifest():
+    """Shipped lancer-skin catalog grouped by lancer, each skin flagged owned/not.
+    Metadata only -- images via /api/weaponskins/img by id."""
+    cat = _load_lancer_catalog()
+    owned = _load_owned()
+    out = {}
+    total = 0
+    owned_n = 0
+    for key, rec in (cat.get("lancers") or {}).items():
+        skins = []
+        for s in (rec.get("skins") or []):
+            sid = s.get("id")
+            is_owned = bool(owned.get(sid))
+            owned_n += 1 if is_owned else 0
+            total += 1
+            skins.append({"id": sid, "label": s.get("label", ""), "owned": is_owned})
+        out[key] = {"name": rec.get("name", key), "skins": skins}
+    return {"lancers": out, "count": total, "owned": owned_n}
 
 
 # ======================= LOCKER (skin gallery) =============================
@@ -8162,6 +8212,10 @@ class Handler(BaseHTTPRequestHandler):
             # (metadata only; images via /img). Works day-one without any screenshots.
             return self._json(skins_catalog_manifest())
 
+        if path == "/api/lancerskins":
+            # SHIPPED lancer-skin catalog, each flagged owned/not (images via /img).
+            return self._json(lancer_catalog_manifest())
+
         if path == "/api/weaponskins/img":
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             sid = (q.get("id") or [""])[0]
@@ -8916,7 +8970,7 @@ class Handler(BaseHTTPRequestHandler):
 # MAIN
 # ===========================================================================
 def main():
-    global LOG_PATH, SETTINGS_PATH, SERVERS_PATH, PLAYERS_PATH, RANK_PATH, REPLAYS_PATH, SERVERPINGS_PATH, WEAPONSKINS_PATH, ICONS_PATH, SKINS_OWNED_PATH, SKINS_CATALOG_PATH
+    global LOG_PATH, SETTINGS_PATH, SERVERS_PATH, PLAYERS_PATH, RANK_PATH, REPLAYS_PATH, SERVERPINGS_PATH, WEAPONSKINS_PATH, ICONS_PATH, SKINS_OWNED_PATH, SKINS_CATALOG_PATH, LANCER_CATALOG_PATH
     ap = argparse.ArgumentParser(description="Fragpunk VPN route optimizer")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--configs", default=str(SCRIPT_DIR / "configs"))
@@ -8950,6 +9004,7 @@ def main():
     # Shipped skin CATALOG (read-only reference) sits next to the exe / source file.
     _skin_base = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
     SKINS_CATALOG_PATH = _skin_base / "fragroute_skins_catalog.json"
+    LANCER_CATALOG_PATH = _skin_base / "fragroute_lancer_catalog.json"
     if fragroute_learning is not None:
         fragroute_learning.LEARNING_PATH = STATE["configs_dir"].parent / "fragroute_mode_learning.json"
     if fragroute_llm is not None:

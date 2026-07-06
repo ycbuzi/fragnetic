@@ -24,7 +24,9 @@ import time
 import urllib.request
 from pathlib import Path
 
-APP_LLM_BUILD = "llm-1"
+import fragroute_proc as _proc   # orphan-proof helpers (shared Windows Job Object)
+
+APP_LLM_BUILD = "llm-2"          # llm-2: job-adopt llama-server so it can't orphan on the GPU
 
 LLM_DIR = None                  # set by fragroute.main(); else <module|exe>/llm
 _LOCK = threading.Lock()
@@ -235,6 +237,7 @@ def ensure_running(timeout=240):
     if not model or not binary:
         _STATE["error"] = "llama-server or model missing"
         return False
+    _reap_orphans_once()   # clear a prior run's stale GPU-hogging server (once)
     with _LOCK:
         # already serving the right model on the right GPU?
         if _running() and _STATE.get("model") == Path(model).name and _STATE.get("device") == device:
@@ -288,6 +291,7 @@ def ensure_running(timeout=240):
             except Exception as e:
                 _STATE["error"] = str(e)
                 return False
+            _proc.adopt(proc)   # OS kills it if we die by any means (no orphan on the GPU)
             _STATE.update(proc=proc, port=port, kind=kind, model=Path(model).name,
                           device=device, label=label, ready=False, starting=True, error=None)
     # poll health outside the lock so other calls can see 'starting'
@@ -439,6 +443,24 @@ def status():
 # ===========================================================================
 _VSTATE = {"proc": None, "port": None, "ready": False, "starting": False, "error": None}
 
+_REAPED = {"done": False}
+
+
+def _reap_orphans_once():
+    """Once per run, before we spawn our first llama-server, kill any left behind by a
+    previous crashed/killed run -- a stale server sits on the GPU and tanks in-game FPS.
+    Guarded so we never kill a server we own: text + vision share the llama-server.exe
+    image name, so this only runs while we own NO live server. Ours are job-adopted and
+    can never orphan again."""
+    if _REAPED["done"] or os.name != "nt":
+        return
+    for st in (_STATE, _VSTATE):
+        p = st.get("proc")
+        if p is not None and p.poll() is None:
+            return   # we own a live server -- reaping by image name would kill it too
+    _REAPED["done"] = True
+    _proc.reap("llama-server.exe")
+
 
 def _vision_devices(kind):
     """GPU pin order to try for the vision server. CRITICAL: prefer the SECONDARY
@@ -458,6 +480,7 @@ def _vision_devices(kind):
 
 
 def ensure_vision_running(timeout=150):
+    _reap_orphans_once()   # clear a prior run's stale GPU-hogging server (once)
     with _LOCK:
         p = _VSTATE["proc"]
         if _VSTATE["ready"] and p is not None and p.poll() is None:
@@ -495,6 +518,7 @@ def ensure_vision_running(timeout=150):
             except Exception as e:
                 last_err = str(e)
                 continue
+            _proc.adopt(proc)   # OS kills it if we die by any means (no orphan on the GPU)
             _VSTATE.update(proc=proc, port=port, ready=False, starting=True,
                            error=None, device=device)
         t0 = time.time()

@@ -133,6 +133,7 @@ echo Building exe ^(about a minute^)...
   --hidden-import fragroute_persona ^
   --hidden-import fragroute_audio ^
   --hidden-import fragroute_regionlock ^
+  --hidden-import fragroute_proc ^
   --hidden-import pyaudiowpatch ^
   --collect-all pyaudiowpatch ^
   --hidden-import maxminddb ^
@@ -167,6 +168,7 @@ if exist configs xcopy /e /i /y configs "dist\configs" >nul
 if exist fragroute_queue_log.json if not exist "dist\fragroute_queue_log.json" copy /y fragroute_queue_log.json "dist\" >nul
 REM Shipped skin catalog -- the reference gallery next to the exe (read by machine_id-based path)
 if exist fragroute_skins_catalog.json copy /y fragroute_skins_catalog.json "dist\" >nul
+if exist fragroute_lancer_catalog.json copy /y fragroute_lancer_catalog.json "dist\" >nul
 if exist README.md copy /y README.md "dist\" >nul
 if exist EULA.md copy /y EULA.md "dist\" >nul
 if exist PRIVACY.md copy /y PRIVACY.md "dist\" >nul

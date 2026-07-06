@@ -35,6 +35,30 @@ PREFERRED_MIC = None       # set by engine from the 'voiceMic' setting (name; No
 _MIC = {"device": None, "checked": False}
 _NOWIN = {"creationflags": 0x08000000} if os.name == "nt" else {}
 
+# --------------------------------------------------------------------------- #
+#  ORPHAN-PROOF child processes (Windows Job Object).
+#  atexit/stop_whisper only run on a CLEAN interpreter exit. This app is
+#  UAC-elevated and usually closed via the tray or hard-killed, so atexit never
+#  fires -> the whisper-server was orphaned on every run (they piled up, each
+#  eating RAM and stealing CPU from the game -- a real FPS drain).
+#  A Job Object with KILL_ON_JOB_CLOSE fixes this at the OS level: when THIS
+#  process dies by ANY means (clean, crash, taskkill), the OS tears down the job
+#  and kills every child in it. Belt-and-suspenders with stop_whisper().
+#  The helpers now live in the shared fragroute_proc module so the LLM, TTS,
+#  image-gen, video and capture sidecars share the exact same protection.
+# --------------------------------------------------------------------------- #
+import fragroute_proc as _proc
+
+_adopt = _proc.adopt                       # job-adopt a persistent child (Popen)
+_REAPED = {"done": False}                  # guards the one-time orphan reap this run
+
+
+def _reap_orphan_servers():
+    """Kill any whisper-server.exe left behind by a previous crashed/killed run so
+    they don't accumulate. Safe for this single-user app -- we start our own after.
+    Only run when we don't currently own a live server (guarded by callers)."""
+    _proc.reap("whisper-server.exe")
+
 
 def _base_dir():
     if STT_DIR:
@@ -511,6 +535,7 @@ def ensure_whisper_server(timeout=60):
                                     stderr=subprocess.DEVNULL, **_NOWIN)
         except Exception:
             return False
+        _adopt(proc)   # OS kills it if we die by any means (no more orphans)
         t0 = time.time()
         while time.time() - t0 < timeout:
             if proc.poll() is not None:
@@ -532,6 +557,13 @@ def prewarm_whisper():
         return
     if _WSERVER["ready"] and _WSERVER["proc"] and _WSERVER["proc"].poll() is None:
         return
+    # First warm-up of this run: reap any whisper-server orphaned by a previous
+    # crashed/killed run (a pre-fix build could leave several). We don't own a live
+    # server here (guarded above), so this only kills stale ones. New servers we
+    # spawn are job-adopted, so they can never orphan again.
+    if not _REAPED["done"]:
+        _REAPED["done"] = True
+        _reap_orphan_servers()
     threading.Thread(target=ensure_whisper_server, daemon=True).start()
 
 
