@@ -2823,6 +2823,11 @@ def _is_public_ip(host):
     try:
         import ipaddress
         ip = ipaddress.ip_address(host)
+        # 100.64.0.0/10 = RFC 6598 CGNAT/shared space -- not routable, never a real game
+        # server. Some Python versions don't flag it via is_private, so exclude it
+        # explicitly to stay consistent with _is_private_ip.
+        if ip.version == 4 and ip in ipaddress.ip_network("100.64.0.0/10"):
+            return False
         return not (ip.is_private or ip.is_loopback or ip.is_link_local
                     or ip.is_multicast or ip.is_reserved or ip.is_unspecified)
     except Exception:

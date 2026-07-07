@@ -96,10 +96,28 @@ def test_license_revoke():
           r({"valid": True, "license_key": {"status": "disabled"}}) is True)
 
 
+# --- 9) public-IP classifier (region-lock carve-out: never block the game) -----
+def test_public_ip():
+    import fragroute
+    check("ip: public game server -> True", fragroute._is_public_ip("8.221.52.114"))
+    check("ip: LAN 192.168 -> False", not fragroute._is_public_ip("192.168.0.21"))
+    check("ip: loopback -> False", not fragroute._is_public_ip("127.0.0.1"))
+    check("ip: CGNAT 100.64 -> False", not fragroute._is_public_ip("100.90.1.1"))
+
+
+# --- 10) update version compare (don't nag/downgrade wrongly) -------------------
+def test_ver_tuple():
+    import fragroute
+    vt = fragroute._ver_tuple
+    check("ver: 20.7 > 20.6", vt("20.7") > vt("20.6"))
+    check("ver: 20.10 > 20.9 (numeric, not lexical)", vt("20.10") > vt("20.9"))
+    check("ver: equal", vt("20.7") == vt("20.7"))
+
+
 def main():
     for t in (test_atomic_write, test_host_allowlist, test_prompt_injection_clause,
               test_live_mode_gate, test_proc_job, test_regionlock_sweep, test_capture_modules,
-              test_license_revoke):
+              test_license_revoke, test_public_ip, test_ver_tuple):
         print("[%s]" % t.__name__)
         try:
             t()
