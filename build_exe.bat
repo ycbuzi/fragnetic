@@ -63,6 +63,17 @@ if errorlevel 1 (
   exit /b 1
 )
 
+REM --- 3c) REGRESSION SMOKE TEST: critical safety/security paths --------------
+REM  Locks in the 20.x hardening (atomic writes, allow-list, prompt-injection
+REM  clause, FPS mode-gate, orphan job, region-lock). Refuse to ship a regression.
+echo Running regression smoke test...
+%PY% test_smoke.py
+if errorlevel 1 (
+  echo [X] Regression smoke test FAILED - refusing to build. A safety/security path broke.
+  pause
+  exit /b 1
+)
+
 REM --- 4) Acquire + bundle WireGuard (all-in-one) -------------------------
 REM  If wireguard.exe isn't already in this folder, copy it from a system
 REM  WireGuard for Windows install so the built exe is fully self-contained.
