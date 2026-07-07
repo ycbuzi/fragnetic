@@ -341,6 +341,8 @@ def _start_wgc(ff, ring, hwnd, fps, bitrate, encoder, seg, nseg, flags):
     if first is None:
         fragroute_wgc._close(sess)
         return None, None
+    video_started = time.time()   # real video content begins ~now (first frame in hand);
+                                  # used for accurate A/V head-alignment on save
     try:
         cmd = _build_wgc_cmd(ff, ring, w, h, fps, bitrate, encoder, seg, nseg)
         p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
@@ -383,7 +385,8 @@ def _start_wgc(ff, ring, hwnd, fps, bitrate, encoder, seg, nseg, flags):
         stop_ev.set()
         fragroute_wgc._close(sess)
         return None, None
-    return p, {"session": sess, "thread": th, "stop": stop_ev, "w": w, "h": h}
+    return p, {"session": sess, "thread": th, "stop": stop_ev, "w": w, "h": h,
+               "video_started": video_started}
 
 
 def is_recording():
@@ -511,7 +514,12 @@ def start(base_dir, opts=None):
         _STATE["wasapi_audio"] = wasapi_audio
         _STATE["proc"] = proc
         _STATE["ring_dir"] = ring
-        _STATE["started"] = time.time()
+        # For WGC, anchor "started" to the TRUE first-frame time (the video's wall-clock
+        # t=0), not now -- start() spent ~0.5s on the first-frame proof + poll, and the
+        # save-time A/V head-alignment (_save_concat) keys off this, so an over-late
+        # value would make the audio lead the video by ~0.5s.
+        _wgc_st = _STATE.get("wgc") or {}
+        _STATE["started"] = _wgc_st.get("video_started") or time.time()
         _STATE["settings"] = {"fps": fps, "bitrate": bitrate, "encoder": encoder,
                               "gpu": gpu, "seg_seconds": seg, "ring_segments": nseg,
                               "buffer_seconds": seg * nseg,
