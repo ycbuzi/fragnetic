@@ -222,6 +222,28 @@ def apply(block_map, target_region=None):
                            % (len(blocked), (" -> " + target_region) if target_region else "")}
 
 
+def _sweep_prefix():
+    """Delete EVERY firewall rule whose name starts with our prefix, regardless of the
+    state file -- the authoritative safety net. apply() writes the state file AFTER it
+    adds the netsh rules, so a hard-kill in between (or a lost/corrupted state file)
+    leaves rules the state doesn't record; without this sweep those would silently keep
+    blocking the user's connections with nothing to remove them. netsh has no wildcard
+    delete, so use PowerShell's NetSecurity module (netsh 'name' == rule DisplayName).
+    Best-effort; returns how many it removed (0 if none / PowerShell unavailable)."""
+    if os.name != "nt":
+        return 0
+    try:
+        ps = ("$r=Get-NetFirewallRule -DisplayName '%s*' -ErrorAction SilentlyContinue;"
+              "if($r){$c=@($r).Count; $r | Remove-NetFirewallRule -ErrorAction SilentlyContinue; $c}"
+              "else{0}" % RULE_PREFIX)
+        out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                             capture_output=True, text=True, errors="replace",
+                             timeout=25, **_NOWIN).stdout.strip()
+        return int((out or "0").splitlines()[-1]) if out else 0
+    except Exception:
+        return 0
+
+
 def clear():
     """Remove EVERY rule this module created (tracked names + a belt-and-suspenders
     sweep of the prefix). Safe to call anytime; total and idempotent. Returns
@@ -239,16 +261,27 @@ def clear():
         rc, _ = _run(["netsh", "advfirewall", "firewall", "delete", "rule", "name=" + name])
         if rc == 0:
             removed += 1
+    # authoritative sweep: catch anything the state file didn't know about (crash mid-apply)
+    swept = _sweep_prefix()
+    removed = max(removed, swept)
     _save_state({"active": False, "blocked": [], "rules": [], "target": None})
     return {"ok": True, "removed": removed}
 
 
 def cleanup_on_start():
-    """Called once at engine startup: if a previous run (or a crash) left rules
-    behind, remove them so the user never boots into a silent lock."""
+    """Called once at engine startup: if a previous run (or a crash) left rules behind,
+    remove them so the user never boots into a silent lock. Even when the state file
+    says 'clean' we still sweep by prefix (in the background, so startup isn't delayed) --
+    a crash mid-apply or a lost state file could have left rules the state never recorded,
+    and a silently-blocked user is far worse than a one-off background netsh call."""
     st = _load_state()
     if st.get("active") or st.get("rules"):
         return clear()
+    # state says clean; verify with a NON-BLOCKING prefix sweep so a desync can't persist
+    def _bg():
+        if _sweep_prefix():
+            _save_state({"active": False, "blocked": [], "rules": [], "target": None})
+    threading.Thread(target=_bg, daemon=True).start()
     return {"ok": True, "removed": 0}
 
 
