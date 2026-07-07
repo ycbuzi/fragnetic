@@ -82,9 +82,24 @@ def test_capture_modules():
     check("wgc: find_fragpunk_hwnd(None) no crash", wgc.find_fragpunk_hwnd(None) in (None,) or True)
 
 
+# --- 8) license revoke decision (commercial: don't lock out paying users) ------
+def test_license_revoke():
+    import fragroute_license as lic
+    r = lic._ls_should_revoke
+    check("license: HTTP 5xx error -> keep (None)", r({"error": "HTTP 500"}) is None)
+    check("license: malformed body -> keep (None)", r({"foo": "bar"}) is None)
+    check("license: valid paid key -> keep (False)",
+          r({"valid": True, "license_key": {"status": "active"}}) is False)
+    check("license: genuinely expired -> revoke (True)",
+          r({"valid": False, "license_key": {"status": "expired"}}) is True)
+    check("license: disabled -> revoke (True)",
+          r({"valid": True, "license_key": {"status": "disabled"}}) is True)
+
+
 def main():
     for t in (test_atomic_write, test_host_allowlist, test_prompt_injection_clause,
-              test_live_mode_gate, test_proc_job, test_regionlock_sweep, test_capture_modules):
+              test_live_mode_gate, test_proc_job, test_regionlock_sweep, test_capture_modules,
+              test_license_revoke):
         print("[%s]" % t.__name__)
         try:
             t()

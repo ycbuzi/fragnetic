@@ -270,6 +270,18 @@ def _set_ls_license(key):
             "activationsLeft": max(0, left)}
 
 
+def _ls_should_revoke(res):
+    """Decide from a Lemon Squeezy validate response whether to revoke:
+      None  = ambiguous (HTTP 4xx/5xx / malformed body with no `valid` field) -> keep
+              the cached entitlement; NEVER revoke a paying user on an API hiccup.
+      True  = revoke (definitive valid:false, or status disabled/expired).
+      False = keep (valid). Pure + testable (see test_smoke)."""
+    if not isinstance(res, dict) or "valid" not in res:
+        return None
+    status = (res.get("license_key") or {}).get("status")
+    return (not res.get("valid")) or status in ("disabled", "expired")
+
+
 def _ls_maybe_revalidate(rec):
     """Kick a BACKGROUND re-validation if the cached LS record is stale, so a
     cancelled/expired subscription eventually drops to free without ever blocking
@@ -289,16 +301,13 @@ def _ls_maybe_revalidate(rec):
             # would REVOKE a paying customer on an API hiccup. So ignore anything that
             # isn't a real validation result and keep the cached entitlement (a network
             # error already raises -> caught below -> cache kept; this covers HTTP errors).
-            if "valid" not in res:
-                return
+            dec = _ls_should_revoke(res)
+            if dec is None:
+                return          # API error / no `valid` -> keep cache (don't revoke)
             lk = res.get("license_key") or {}
-            status = lk.get("status")
             rec["validated"] = time.time()
-            rec["status"] = status
-            # Per LS docs, the authoritative signal is `valid`. A cancelled/expired
-            # subscription -> status 'expired'; a manual kill -> 'disabled'. 'inactive'
-            # just means "valid key, no activations" and must NOT drop paid users.
-            rec["revoked"] = (not res.get("valid")) or status in ("disabled", "expired")
+            rec["status"] = lk.get("status")
+            rec["revoked"] = dec
             if not rec["revoked"]:
                 meta = res.get("meta") or {}
                 if meta.get("variant_id"):
