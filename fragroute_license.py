@@ -283,6 +283,14 @@ def _ls_maybe_revalidate(rec):
     def _go():
         try:
             res = _ls_call("validate", rec.get("key"), instance_id=rec.get("instance"))
+            # A DEFINITIVE LS validation result always carries a `valid` boolean. A
+            # transient HTTP 4xx/5xx or a malformed body comes back as {"error": ...}
+            # with NO `valid` field -- acting on it (`not res.get("valid")` -> True)
+            # would REVOKE a paying customer on an API hiccup. So ignore anything that
+            # isn't a real validation result and keep the cached entitlement (a network
+            # error already raises -> caught below -> cache kept; this covers HTTP errors).
+            if "valid" not in res:
+                return
             lk = res.get("license_key") or {}
             status = lk.get("status")
             rec["validated"] = time.time()
