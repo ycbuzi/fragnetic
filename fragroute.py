@@ -381,14 +381,28 @@ def _maps_store():
     return {"captures": []}
 
 
+def _write_json_atomic(path, data, indent=2):
+    """Crash-safe JSON write. Write to a temp file on the SAME volume as the
+    target (same dir -> os.replace is atomic on Windows), then swap it in. If
+    the app is hard-killed (tray close / taskkill / crash) mid-write, the dest
+    is left as either the old complete file or the new complete file, never a
+    half-written corrupt one. Returns True on success; cleans up tmp on failure."""
+    tmp = str(path) + ".tmp"
+    try:
+        Path(tmp).write_text(json.dumps(data, indent=indent), encoding="utf-8")
+        os.replace(tmp, path)
+        return True
+    except Exception:
+        try:
+            os.remove(tmp)
+        except Exception:
+            pass
+        return False
+
+
 def _save_maps(d):
     p = _maps_dir().parent / "fragroute_maps.json"
-    try:
-        tmp = str(p) + ".tmp"
-        Path(tmp).write_text(json.dumps(d, indent=2), encoding="utf-8")
-        Path(tmp).replace(p)
-    except Exception:
-        pass
+    _write_json_atomic(p, d)
 
 
 def _known_names():
@@ -1336,7 +1350,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "20.5"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "20.6"    # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 # Lemon Squeezy checkout link (the app's Buy/Unlock buttons open this in the system
 # browser). Get it from your LS dashboard -> Products -> "Share" / checkout link.
@@ -3338,8 +3352,7 @@ def load_log():
 
 def save_log(entries):
     try:
-        Path(LOG_PATH).write_text(json.dumps(entries, indent=2))
-        return True
+        return _write_json_atomic(LOG_PATH, entries)
     except Exception:
         return False
 
@@ -3575,7 +3588,7 @@ def load_replay_meta():
 
 def _save_replay_meta(meta):
     try:
-        Path(REPLAYS_PATH).write_text(json.dumps(meta, indent=2))
+        _write_json_atomic(REPLAYS_PATH, meta)
     except Exception:
         pass
 
@@ -3684,8 +3697,7 @@ def replay_open_folder(iid):
 
 def save_servers(data):
     try:
-        Path(SERVERS_PATH).write_text(json.dumps(data, indent=2))
-        return True
+        return _write_json_atomic(SERVERS_PATH, data)
     except Exception:
         return False
 
@@ -4012,7 +4024,7 @@ def _record_players(count):
         else:
             data.append({"ts": now_ms, "count": count})
         data = data[-600:]                         # ~days of 8-min samples
-        Path(PLAYERS_PATH).write_text(json.dumps(data))
+        _write_json_atomic(PLAYERS_PATH, data, indent=None)
     except Exception:
         pass
 
@@ -4306,7 +4318,7 @@ def save_settings(updates):
             if k in DEFAULT_SETTINGS:
                 _SETTINGS[k] = v
         try:
-            Path(SETTINGS_PATH).write_text(json.dumps(_SETTINGS, indent=2))
+            _write_json_atomic(SETTINGS_PATH, _SETTINGS)
         except Exception:
             pass
         return dict(_SETTINGS)
@@ -4356,7 +4368,7 @@ def import_user_data(bundle):
         if fn not in _BACKUP_FILES:          # whitelist -> can never write an arbitrary path
             continue
         try:
-            (d / fn).write_text(json.dumps(content, indent=2), encoding="utf-8")
+            _write_json_atomic(d / fn, content)
             n += 1
         except Exception:
             pass
@@ -5344,7 +5356,7 @@ def _merge_server_pings(reading):
         data["updated"] = now_ms
         data["lastSelected"] = reading.get("selected") or data.get("lastSelected")
         try:
-            Path(SERVERPINGS_PATH).write_text(json.dumps(data, indent=2))
+            _write_json_atomic(SERVERPINGS_PATH, data)
         except Exception:
             pass
     return data
@@ -5437,7 +5449,7 @@ def record_rank(snap):
         hist.append(entry)
         data["history"] = hist[-500:]
         try:
-            Path(RANK_PATH).write_text(json.dumps(data, indent=2))
+            _write_json_atomic(RANK_PATH, data)
         except Exception:
             pass
         return entry
@@ -6634,9 +6646,8 @@ def _save_weapon_skins(data):
     if not WEAPONSKINS_PATH:
         return
     try:
-        tmp = str(WEAPONSKINS_PATH) + ".tmp"
-        Path(tmp).write_text(json.dumps(data), encoding="utf-8")
-        os.replace(tmp, WEAPONSKINS_PATH)
+        if not _write_json_atomic(WEAPONSKINS_PATH, data, indent=None):
+            raise IOError("atomic write failed")
     except Exception as e:
         diag("weaponskins", False, msg="save", exc=e)
 
@@ -6690,9 +6701,8 @@ def _save_icons(data):
     if not ICONS_PATH:
         return
     try:
-        tmp = str(ICONS_PATH) + ".tmp"
-        Path(tmp).write_text(json.dumps(data), encoding="utf-8")
-        os.replace(tmp, ICONS_PATH)
+        if not _write_json_atomic(ICONS_PATH, data, indent=None):
+            raise IOError("atomic write failed")
     except Exception as e:
         diag("icons", False, msg="save", exc=e)
 
@@ -6867,9 +6877,8 @@ def _save_owned(data):
     if not SKINS_OWNED_PATH:
         return
     try:
-        tmp = str(SKINS_OWNED_PATH) + ".tmp"
-        Path(tmp).write_text(json.dumps(data), encoding="utf-8")
-        os.replace(tmp, SKINS_OWNED_PATH)
+        if not _write_json_atomic(SKINS_OWNED_PATH, data, indent=None):
+            raise IOError("atomic write failed")
         _OWNED_CACHE["loaded"] = False      # force reload with the new mtime
     except Exception as e:
         diag("skins", False, msg="owned save", exc=e)
@@ -7024,8 +7033,7 @@ def _locker_load_labels():
 
 def _locker_save_labels():
     try:
-        _locker_labels_path().write_text(
-            json.dumps(_LOCKER_LABELS or {}, indent=2), encoding="utf-8")
+        _write_json_atomic(_locker_labels_path(), _LOCKER_LABELS or {})
     except Exception:
         pass
 
@@ -7200,7 +7208,7 @@ def _locker_load_sigs():
 
 def _locker_save_sigs():
     try:
-        _locker_sigs_path().write_text(json.dumps(_LOCKER_SIGS or {}), encoding="utf-8")
+        _write_json_atomic(_locker_sigs_path(), _LOCKER_SIGS or {}, indent=None)
     except Exception:
         pass
 
