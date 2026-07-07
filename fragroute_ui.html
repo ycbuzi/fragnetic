@@ -4511,8 +4511,12 @@ function renderAutocapture(){
   // dot + phase
   setClass(document.getElementById('acDot'),'ac-dot'+(a.phase==='match'?' match':(a.phase==='menu'?' menu':'')));
   setText(document.getElementById('acPhase'),a.phase==='match'?'In match':(a.phase==='menu'?'In queue / menu':'Game closed'));
-  // live clock (advance locally since the last poll)
-  const since=(Date.now()-AUTOCAP_AT)/1000;
+  // live clock (advance locally since the last poll). CAP the local advance: when the
+  // window was hidden (in-game), the data loop paused so AUTOCAP_AT went stale -- an
+  // uncapped since would balloon the clock to e.g. 82:57 on tab-back until the next
+  // poll corrects it. Polls are ~5s, so 12s is a safe ceiling that never distorts the
+  // normal between-poll tick but kills the stale-gap balloon.
+  const since=Math.min(Math.max(0,(Date.now()-AUTOCAP_AT)/1000),12);
   const label=document.getElementById('acClockLabel'), clock=document.getElementById('acClock');
   if(a.phase==='match'){
     setText(label,'Match time');
