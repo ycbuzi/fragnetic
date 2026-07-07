@@ -1170,7 +1170,11 @@ def _voice_command_impl():
         # mic/record fail from a "didn't catch speech" so you're never left guessing.
         _beep(400, 250)
         got_audio = bool(wav and os.path.exists(wav) and os.path.getsize(wav) > 20000)
-        diag("ai", False, msg="voice: no transcript (wav=%s)" % (os.path.getsize(wav) if wav and os.path.exists(wav) else "none"))
+        # Not a subsystem error: pressing the key and not speaking (or VAD hitting
+        # silence) is an EXPECTED outcome the user already hears feedback for -- logging
+        # it as diag(False) just inflated the AI Health error count (42x observed).
+        # Record it (ok=True) so it's still visible for debugging a truly dead mic.
+        diag("ai", True, msg="voice: no transcript (wav=%s)" % (os.path.getsize(wav) if wav and os.path.exists(wav) else "none"))
         _speak("I didn't catch that. Press the key, wait for the two beeps, then talk."
                if got_audio else "I couldn't hear your mic. Check it's set as the default input.")
         return
