@@ -4175,9 +4175,13 @@ def compute_recommendation(max_ping=None, preferred=None):
         # anchor to real live population: fewer players than peak -> longer queues
         expected = round(expected * pop_mult, 1)
         filtered = (max_ping is not None and ping is not None and ping > max_ping)
-        # score: expected queue dominates; ping is a mild quality bias; the
-        # preferred region gets a small handicap so it wins close calls.
-        score = expected + (ping if ping is not None else 140) * 0.25
+        # score: balance expected queue against ping. Ping matters for a competitive
+        # shooter, so it's weighted enough that we don't push a far, high-ping region
+        # (e.g. South America at 66ms) over a low-ping one (US West 26ms) just to shave
+        # ~10s off the queue. A ping ABOVE ~60ms is penalized extra (quadratic-ish) so
+        # only a large queue saving can justify a genuinely laggy route.
+        p = (ping if ping is not None else 140)
+        score = expected + p * 0.6 + max(0.0, p - 60) * 0.9
         if preferred and rid == preferred:
             score -= 25
         rows.append({
@@ -4558,6 +4562,13 @@ def _autodetect_tick():
         if committed == prev:
             if committed == "match":
                 AUTODETECT["currentServer"] = server
+                # ROBUSTNESS: if we're steadily in a match but matchStartTs was never
+                # set (opened/restarted mid-match, or the menu->match edge was missed),
+                # anchor it now so the match clock reads sanely instead of falling back
+                # to a stale/None value (the "82:57" symptom) and so the recording has a
+                # defined match-start boundary.
+                if not AUTODETECT.get("matchStartTs"):
+                    AUTODETECT["matchStartTs"] = t_ms
                 _live_match_watch()      # AI watches the live match (OCR mode/state)
                 # CATCH-UP arm: we're steadily in a match but never armed the recorder
                 # for it -- happens when Fragnetic is opened/restarted mid-match, or a
