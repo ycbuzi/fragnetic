@@ -1366,7 +1366,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "20.11"   # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "20.12"   # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 # Lemon Squeezy checkout link (the app's Buy/Unlock buttons open this in the system
 # browser). Get it from your LS dashboard -> Products -> "Share" / checkout link.
@@ -3252,7 +3252,7 @@ def game_status():
             "ip": host, "port": port, "proto": proto,
             "city": city, "country": country,
             "countryCode": geo.get("countryCode"), "isp": geo.get("isp"),
-            "where": where, "regionId": rid,
+            "where": where, "regionId": rid, "geoRegionId": geo_rid,
             "regionName": region["name"] if region else None,
             "regionCode": region["code"] if region else None,
             "geoSource": geo.get("source"),
@@ -3742,6 +3742,12 @@ def record_server(region_id, server):
     with _SERVERS_LOCK:
         data = load_servers()
         regions = data.setdefault("regions", {})
+        # An IP belongs to exactly ONE region. Drop any stale copies filed under a DIFFERENT region
+        # (e.g. from an older VPN-region attribution) so the route optimizer never sees the same
+        # datacenter in two places.
+        for _orid, _obk in list(regions.items()):
+            if _orid != region_id and isinstance(_obk, dict) and ip in _obk:
+                _obk.pop(ip, None)
         bucket = regions.setdefault(region_id, {})
         rec = bucket.get(ip)
         if rec:
@@ -4661,18 +4667,26 @@ def _autodetect_tick():
                 AUTODETECT["matchArmed"] = False   # next match may arm again
                 was_training = AUTODETECT.get("matchIsTraining")
                 AUTODETECT["matchIsTraining"] = False
-                # LEARN from this match (skip Training Base / warm-up sessions)
-                if ms and not was_training and fragroute_learning is not None:
+                # A real FragPunk match runs minutes; a sub-45s "match" is a queue-dodge / login
+                # flap (the SAME floor the recorder uses to skip saving one). Gate BOTH learning
+                # and the post-match rank read on it -- otherwise a dodge pollutes the learning
+                # stats (inflated match count + garbage durations, seen live as 22s/41s "matches")
+                # and burns a wasted rank OCR on a match that changed no RP.
+                real_match = bool(ms) and match_dur >= 45 and not was_training
+                # LEARN from this match (skip Training Base / warm-up sessions + sub-match flaps)
+                if real_match and fragroute_learning is not None:
                     try:
                         fragroute_learning.observe_match(match_mode, durationS=match_dur)
                         diag("learning", True, msg="observed %s (%ds)" % (match_mode, match_dur))
                     except Exception as e:
                         diag("learning", False, msg="observe", exc=e)
+                elif ms and not was_training and match_dur < 45:
+                    diag("learning", True, msg="skipped %ds flap (not a real match)" % match_dur)
                 LIVE_STATE.update(inMatch=False, since=0.0)
                 # capture this match's RP result right away -- the 55s menu poll
                 # can miss it on a fast requeue (common after a LOSS), which made
                 # losses look untracked. A real match end forces a prompt read.
-                if not was_training:
+                if real_match:
                     _schedule_post_match_rank_read()
             # start a fresh queue clock (auto-timed until the user marks it)
             AUTODETECT["queueStartTs"] = t_ms
@@ -4737,9 +4751,15 @@ def _autodetect_tick():
             rid = STATE.get("active_region") or geo_rid
             # harvest the real game-server IP under the region you actually queued
             # in, so the Route Optimizer registers it (skip in Training Base).
+            # LEARN under the server's PHYSICAL GeoIP region, NOT the VPN region we queued from:
+            # ping (what the optimizer predicts) is set by physical distance, and tagging by VPN
+            # region split real datacenters across regions (observed: a Frankfurt /24 with one IP
+            # in eu and its sibling in us-west, depending on the tunnel used). Fall back to the
+            # queued region only when GeoIP can't place the IP.
+            phys_rid = (server or {}).get("geoRegionId") or rid
             if rid and not training:
                 try:
-                    record_server(rid, server)
+                    record_server(phys_rid, server)
                     # OFF-VPN tracking: with no tunnel, GeoIP names the raw match IP
                     # (verified: 8.211->eu, 47.246->us-east, etc.). Measure the REAL
                     # ping to the live server we just harvested so the Live Game /
