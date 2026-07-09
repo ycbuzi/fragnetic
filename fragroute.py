@@ -1366,7 +1366,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "20.10"   # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "20.11"   # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 # Lemon Squeezy checkout link (the app's Buy/Unlock buttons open this in the system
 # browser). Get it from your LS dashboard -> Products -> "Share" / checkout link.
@@ -3910,8 +3910,8 @@ def scout_ping_servers(region_ids=None):
         with lock:
             results.setdefault(rid, {})[ip] = ms
 
-    threads = [threading.Thread(target=worker, args=(rid, ip))
-               for rid, ip in targets]
+    threads = [threading.Thread(target=worker, args=(rid, ip), daemon=True)
+               for rid, ip in targets]   # daemon: a hung ping must not block exit / pile up
     for t in threads:
         t.start()
     for t in threads:
@@ -7705,6 +7705,22 @@ def locker_warm_cache(limit=None, progress=None):
     return built
 
 
+def _as_int(v, default=0):
+    """Coerce request/JSON input to int without raising. A malformed value from the UI (or a
+    crafted request) should fall back to the default, not 500 the endpoint."""
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return default
+
+
+def _as_float(v, default=0.0):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):  # quiet
         pass
@@ -8555,7 +8571,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "message": "dataset module unavailable"}, 400)
             return self._json(fragroute_dataset.harvest(
                 video_paths=body.get("videos"), youtube_urls=body.get("youtube"),
-                fps=float(body.get("fps", 0.5))))
+                fps=_as_float(body.get("fps"), 0.5)))
 
         if path == "/api/train/bootstrap":
             if fragroute_dataset is None:
@@ -8566,7 +8582,7 @@ class Handler(BaseHTTPRequestHandler):
             if fragroute_dataset is None:
                 return self._json({"ok": False, "message": "dataset module unavailable"}, 400)
             return self._json(fragroute_dataset.auto_harvest(
-                folders=_harvest_folders(), fps=float(body.get("fps", 0.5))))
+                folders=_harvest_folders(), fps=_as_float(body.get("fps"), 0.5)))
 
         if path == "/api/train/addclass":
             if fragroute_dataset is None:
@@ -8591,7 +8607,7 @@ class Handler(BaseHTTPRequestHandler):
             if fragroute_dataset is None:
                 return self._json({"ok": False, "message": "dataset module unavailable"}, 400)
             return self._json(fragroute_dataset.autofill(
-                conf_thr=float(body.get("conf", 0.5)),
+                conf_thr=_as_float(body.get("conf"), 0.5),
                 add_missed=bool(body.get("addMissed", False))))
 
         if path == "/api/video/montage":
@@ -8640,7 +8656,7 @@ class Handler(BaseHTTPRequestHandler):
             src = next((c.get("path") for c in items if c.get("name") == body.get("clip")), None)
             if not src:
                 return self._json({"ok": False, "message": "clip not found"}, 400)
-            return self._json(fragroute_video.trim(src, float(body.get("start", 0)), float(body.get("dur", 10))))
+            return self._json(fragroute_video.trim(src, _as_float(body.get("start"), 0), _as_float(body.get("dur"), 10)))
 
         if path == "/api/train/suggest":
             if fragroute_embed is None or fragroute_dataset is None:
@@ -8656,7 +8672,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/log":
             entry = {
                 "regionId": body.get("regionId"),
-                "duration": int(body.get("duration", 0)),
+                "duration": _as_int(body.get("duration"), 0),
                 "outcome": body.get("outcome", "matched"),
                 "ts": body.get("ts") or int(datetime.datetime.now().timestamp() * 1000),
             }
@@ -8814,7 +8830,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/capture/clip":
             if fragroute_capture is None:
                 return self._json({"ok": False, "message": "capture module unavailable"}, 503)
-            secs = max(60, int(body.get("seconds", 60))) if body else 60
+            secs = max(60, _as_int(body.get("seconds"), 60)) if body else 60
             return self._json(fragroute_capture.save_clip(_captures_dir(), secs, body.get("label") if body else None))
 
         if path == "/api/docs/open":
@@ -8883,9 +8899,9 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 r = fragroute_imagegen.generate(
                     prompt, negative=body.get("negative"),
-                    steps=int(body.get("steps", 20)),
-                    width=int(body.get("width", 768)), height=int(body.get("height", 768)),
-                    seed=int(body.get("seed", -1)))
+                    steps=_as_int(body.get("steps"), 20),
+                    width=_as_int(body.get("width"), 768), height=_as_int(body.get("height"), 768),
+                    seed=_as_int(body.get("seed"), -1))
                 diag("ai", bool(r.get("ok")), msg="image-gen")
             except Exception as e:
                 diag("ai", False, msg="image-gen", exc=e)
@@ -8922,7 +8938,7 @@ class Handler(BaseHTTPRequestHandler):
             elif body.get("reset"):
                 fragroute_persona.set_base(user, "soothing")   # neutral-warm default
             elif body.get("trait"):
-                fragroute_persona.nudge(user, body["trait"], float(body.get("delta", 0)))
+                fragroute_persona.nudge(user, body["trait"], _as_float(body.get("delta"), 0))
             elif body.get("reaction"):
                 fragroute_persona.observe(user, "", body["reaction"])
             return self._json(fragroute_persona.status(user))
@@ -8935,7 +8951,7 @@ class Handler(BaseHTTPRequestHandler):
             wav = os.path.join(_tf.gettempdir(), "fragnetic_preview.wav")
             line = (body.get("text") if body else None) or "This is your Fragnetic coach. Let's get to work."
             ok = fragroute_tts.synth(line, wav, body.get("voice") if body else None,
-                                     float(body.get("rate", 1.0)) if body else 1.0)
+                                     _as_float(body.get("rate"), 1.0) if body else 1.0)
             if not ok:
                 return self._json({"ok": False, "message": "synthesis failed"})
             try:

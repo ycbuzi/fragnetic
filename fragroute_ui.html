@@ -2065,6 +2065,15 @@
 })();
 
 // ====================== CONFIG / STATE ======================
+// Safety net: many fetch(...).then() chains don't attach a .catch (a failed poll/save on a
+// server hiccup would otherwise surface as an unhandled-rejection console error and, in a
+// packaged WebView, a visible error toast/overlay). Swallow the noise quietly -- individual
+// handlers still show user feedback where it matters (saves, purchase). Never let a stray
+// network rejection break the UI.
+window.addEventListener('unhandledrejection', function(e){
+  try { console.warn('bg request failed:', (e && e.reason && e.reason.message) || e.reason); } catch(_){}
+  if (e && e.preventDefault) e.preventDefault();
+});
 const API = '';                       // same origin
 let REGIONS = [];                     // from backend
 let META = { configsDir: '', unmapped: [], os: '', admin: false, dryRun: false };
