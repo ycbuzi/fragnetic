@@ -19,11 +19,27 @@ TRIAL_DAYS). admin tier = unrestricted -- the owner's key.
 """
 import base64
 import json
+import os
 import threading
 import time
 import uuid
 import hashlib
 from pathlib import Path
+
+
+def _atomic_write(path, text):
+    """Crash-safe write: temp file on the same dir, then os.replace (atomic on Windows).
+    A hard-kill mid-write must never corrupt the license file -> permanent loss of a paid
+    entitlement with no recovery. Best-effort; falls back to a direct write."""
+    try:
+        tmp = str(path) + ".tmp"
+        Path(tmp).write_text(text, encoding="utf-8")
+        os.replace(tmp, str(path))
+    except Exception:
+        try:
+            Path(path).write_text(text, encoding="utf-8")
+        except Exception:
+            pass
 
 APP_LICENSE_BUILD = "lic-4"
 
@@ -230,11 +246,26 @@ def _set_ls_license(key):
             if res.get("valid"):
                 prev["validated"] = time.time()
                 prev["revoked"] = False
-                _lic_path().write_text(json.dumps(prev), encoding="utf-8")
+                _atomic_write(_lic_path(), json.dumps(prev))
                 return {"valid": True, "tier": prev.get("tier", LS_DEFAULT_TIER),
                         "name": prev.get("name", ""), "ls": True}
+            # DEFINITIVE revoke (disabled/expired) -> do NOT fall through to a fresh activate.
+            # Re-activating a revoked key burns one of the buyer's limited activations on every
+            # re-paste/re-check. Only an AMBIGUOUS result (dec is None: HTTP hiccup / deleted
+            # instance) should reach the fresh-activation path below.
+            if _ls_should_revoke(res) is True:
+                prev["revoked"] = True
+                prev["validated"] = time.time()
+                try:
+                    _atomic_write(_lic_path(), json.dumps(prev))
+                except Exception:
+                    pass
+                status = (res.get("license_key") or {}).get("status") or "no longer valid"
+                return {"valid": False, "revoked": True,
+                        "error": "This license key is %s. Contact support, or paste a "
+                                 "different key." % status}
         except Exception:
-            pass                             # fall through to a fresh activation
+            pass                             # network/transient -> fall through to a fresh activation
     try:
         res = _ls_call("activate", key, instance_name=machine_id())
     except Exception as e:
@@ -262,7 +293,7 @@ def _set_ls_license(key):
            "email": meta.get("customer_email") or "", "status": lk.get("status"),
            "validated": time.time(), "revoked": False}
     try:
-        _lic_path().write_text(json.dumps(rec), encoding="utf-8")
+        _atomic_write(_lic_path(), json.dumps(rec))
     except Exception as e:
         return {"valid": False, "error": "could not save: %s" % e}
     left = (lk.get("activation_limit") or 0) - (lk.get("activation_usage") or 0)
@@ -312,7 +343,7 @@ def _ls_maybe_revalidate(rec):
                 meta = res.get("meta") or {}
                 if meta.get("variant_id"):
                     rec["tier"] = _tier_for_variant(meta.get("variant_id"))
-            _lic_path().write_text(json.dumps(rec), encoding="utf-8")
+            _atomic_write(_lic_path(), json.dumps(rec))
         except Exception:
             pass                             # offline / transient -> keep the cache
         finally:
@@ -341,7 +372,7 @@ def set_license(key):
     if not info.get("valid"):
         return info
     try:
-        _lic_path().write_text(json.dumps({"key": key}), encoding="utf-8")
+        _atomic_write(_lic_path(), json.dumps({"key": key}))
     except Exception as e:
         return {"valid": False, "error": "could not save: %s" % e}
     _ONLINE_CACHE.pop(info.get("id"), None)

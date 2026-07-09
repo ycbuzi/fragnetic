@@ -97,7 +97,12 @@ def _vcodec():
 
 
 def _drawtext(text, size=48, y="36"):
-    t = str(text).replace("\\", "").replace(":", "\\:").replace("'", "")[:80]
+    # Sanitize before embedding in the drawtext filter's text='...'. Beyond backslash/
+    # colon/quote, drawtext EXPANDS %{...} (e.g. %{localtime}, %{eif:...}) inside the
+    # text even within quotes -- strip '%' to kill that, and drop brackets/semicolons/
+    # non-printable so a caption can't inject filter-graph syntax or expansions.
+    t = str(text).replace("\\", "").replace("'", "").replace("%", "").replace(":", "\\:")
+    t = "".join(c for c in t if c.isprintable() and c not in "[];")[:80]
     f = ("fontfile='%s':" % _FONT.replace("\\", "/").replace(":", "\\:")) if _FONT else ""
     return ("drawtext=%stext='%s':fontcolor=white:fontsize=%d:borderw=3:bordercolor=black@0.8:"
             "x=(w-text_w)/2:y=%s" % (f, t, size, y))

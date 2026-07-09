@@ -177,7 +177,9 @@ def _open_session(hwnd):
     s = {"ctypes": ctypes, "c_long": c_long, "MAPPED": MAPPED, "ro": False,
          "device": c_void_p(), "context": c_void_p(), "d3ddev": c_void_p(),
          "item": c_void_p(), "pool": c_void_p(), "session": c_void_p(),
-         "staging": c_void_p(), "iid": iid, "w": 0, "h": 0}
+         "staging": c_void_p(), "iid": iid, "w": 0, "h": 0,
+         "TEX2D_DESC": TEX2D_DESC, "SizeInt32": SizeInt32}   # kept so _next_frame can rebuild on resize
+    dxgi = insp = interop = pstat = None   # COM temps -- released in finally (leak-safe)
     try:
         combase.RoInitialize.restype = c_long
         s["ro"] = (combase.RoInitialize(_RO_INIT_MULTITHREADED) >= 0)
@@ -200,11 +202,9 @@ def _open_session(hwnd):
         insp = c_void_p()
         if d3d11.CreateDirect3D11DeviceFromDXGIDevice(dxgi, byref(insp)) < 0:
             return _close(s) or None
-        _method(ctypes, dxgi, 2, ctypes.c_ulong)()
         if _method(ctypes, insp, 0, c_long, POINTER(type(iid["d3ddev"])),
                    POINTER(c_void_p))(byref(iid["d3ddev"]), byref(s["d3ddev"])) < 0:
             return _close(s) or None
-        _method(ctypes, insp, 2, ctypes.c_ulong)()
 
         interop = c_void_p()
         combase.RoGetActivationFactory.restype = c_long
@@ -217,7 +217,6 @@ def _open_session(hwnd):
                    POINTER(c_void_p))(hwnd, byref(iid["item"]), byref(s["item"])) < 0 \
                 or not s["item"]:
             return _close(s) or None
-        _method(ctypes, interop, 2, ctypes.c_ulong)()
 
         size = SizeInt32()
         if _method(ctypes, s["item"], 7, c_long, POINTER(SizeInt32))(byref(size)) < 0:
@@ -236,7 +235,6 @@ def _open_session(hwnd):
                    s["d3ddev"], _PIXFMT_BGRA8, 2, size, byref(s["pool"])) < 0 \
                 or not s["pool"]:
             return _close(s) or None
-        _method(ctypes, pstat, 2, ctypes.c_ulong)()
 
         if _method(ctypes, s["pool"], 10, c_long, c_void_p, POINTER(c_void_p))(
                 s["item"], byref(s["session"])) < 0 or not s["session"]:
@@ -265,6 +263,50 @@ def _open_session(hwnd):
     except Exception:
         _close(s)
         return None
+    finally:
+        # release the COM temporaries on EVERY exit (early-return failures included) --
+        # each leaked one ref on the error paths before this. s holds separate refs to
+        # device/d3ddev/item/pool/session, so releasing these temps is safe.
+        for _t in (dxgi, insp, interop, pstat):
+            try:
+                if _t and _t.value:
+                    _method(ctypes, _t, 2, ctypes.c_ulong)()
+            except Exception:
+                pass
+
+
+def _recreate_for_size(sess, w, h):
+    """Resize the pipeline to a new content size: Recreate the frame pool AND rebuild the CPU
+    staging texture. WGC delivers frames at the pool's FIXED buffer size, so a mid-capture
+    resolution/windowed change would otherwise clip or letterbox the recording. Returns True if
+    the pool was recreated (caller must skip the current, now-stale frame). Fully guarded --
+    returns False on any failure, leaving the old size in place (a valid, if clipped, frame)."""
+    ctypes = sess["ctypes"]
+    c_long = sess["c_long"]
+    from ctypes import byref, c_void_p, POINTER
+    try:
+        newsize = sess["SizeInt32"](w, h)
+        # IDirect3D11CaptureFramePool::Recreate (vtable 6): device, pixelFormat, buffers, size-by-value
+        if _method(ctypes, sess["pool"], 6, c_long, c_void_p, ctypes.c_int, ctypes.c_int32,
+                   sess["SizeInt32"])(sess["d3ddev"], _PIXFMT_BGRA8, 2, newsize) < 0:
+            return False
+        newstg = c_void_p()
+        d = sess["TEX2D_DESC"](w, h, 1, 1, _DXGI_B8G8R8A8_UNORM, 1, 0,
+                               _D3D11_USAGE_STAGING, 0, _D3D11_CPU_ACCESS_READ, 0)
+        if _method(ctypes, sess["device"], 5, c_long, POINTER(sess["TEX2D_DESC"]), c_void_p,
+                   POINTER(c_void_p))(byref(d), None, byref(newstg)) < 0 or not newstg.value:
+            return False   # pool resized but staging failed; w/h left old -> next frame retries + self-heals
+        old = sess["staging"]
+        sess["staging"] = newstg
+        sess["w"], sess["h"] = w, h
+        try:
+            if old and old.value:
+                _method(ctypes, old, 2, ctypes.c_ulong)()   # release the old staging texture
+        except Exception:
+            pass
+        return True
+    except Exception:
+        return False
 
 
 def _grab(sess, timeout_s=0.25):
@@ -297,6 +339,19 @@ def _grab(sess, timeout_s=0.25):
         if _method(ctypes, access, 3, c_long, POINTER(type(iid["tex2d"])),
                    POINTER(c_void_p))(byref(iid["tex2d"]), byref(tex)) < 0 or not tex:
             return None
+        # WINDOW RESIZE: the frame carries the ACTUAL content size (vtable 8, get_ContentSize).
+        # When it diverges from the pool's fixed buffer size, rebuild the pool + staging so the
+        # recording tracks the new resolution instead of clipping. The current frame is from the
+        # OLD pool, so skip it -- the next _grab() pulls a correctly-sized one. Guarded end-to-end.
+        try:
+            _cs = sess["SizeInt32"]()
+            if _method(ctypes, frame, 8, c_long, POINTER(sess["SizeInt32"]))(byref(_cs)) >= 0:
+                _cw, _ch = int(_cs.W), int(_cs.H)
+                if _cw > 0 and _ch > 0 and (_cw != sess["w"] or _ch != sess["h"]):
+                    if _recreate_for_size(sess, _cw, _ch):
+                        return None
+        except Exception:
+            pass
         _method(ctypes, sess["context"], 47, None, c_void_p, c_void_p)(sess["staging"], tex)
         m = sess["MAPPED"]()
         if _method(ctypes, sess["context"], 14, c_long, c_void_p, ctypes.c_uint,

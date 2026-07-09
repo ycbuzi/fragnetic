@@ -12,6 +12,7 @@ writes, stdlib only. The engine sets LEARNING_PATH and calls observe_*(); the AI
 coach reads profile()/summary().
 """
 import json
+import re
 import threading
 import time
 from pathlib import Path
@@ -22,8 +23,10 @@ except Exception:
     fragroute_modes = None
 
 LEARNING_PATH = None            # set by fragroute.main()
-_LOCK = threading.Lock()
-_CACHE = {"loaded": False, "data": None}
+# RLock (not Lock): writers hold _LOCK and call load() inside it, so load() must be able
+# to (re-)acquire the SAME lock on the same thread without deadlocking.
+_LOCK = threading.RLock()
+_CACHE = {"loaded": False, "data": None, "saveErr": None}
 
 # how much observed evidence flips a boolean away from the seed
 _CONFIRM = 3                    # N consistent observations -> trust it
@@ -79,17 +82,30 @@ def _migrate(data):
 def load():
     if _CACHE["loaded"] and _CACHE["data"] is not None:
         return _CACHE["data"]
-    data = _blank()
+    with _LOCK:                       # serialize the cache-populate; RLock => writers re-enter safely
+        if _CACHE["loaded"] and _CACHE["data"] is not None:
+            return _CACHE["data"]      # another thread populated it while we waited on the lock
+        data = _blank()
+        try:
+            if LEARNING_PATH and Path(LEARNING_PATH).exists():
+                d = json.loads(Path(LEARNING_PATH).read_text(encoding="utf-8"))
+                if isinstance(d, dict) and "modes" in d:
+                    data = _migrate(d)
+        except Exception:
+            pass
+        _CACHE["data"] = data
+        _CACHE["loaded"] = True
+        return data
+
+
+def _inc(d, key, by=1):
+    """Increment a persisted counter defensively. A corrupted/hand-edited learning file
+    can hold a non-int (str/null) where an int is expected; a bare `+= 1` would raise
+    TypeError and abort the whole observe_*() call. Coerce, and reset to `by` if unusable."""
     try:
-        if LEARNING_PATH and Path(LEARNING_PATH).exists():
-            d = json.loads(Path(LEARNING_PATH).read_text(encoding="utf-8"))
-            if isinstance(d, dict) and "modes" in d:
-                data = _migrate(d)
-    except Exception:
-        pass
-    _CACHE["data"] = data
-    _CACHE["loaded"] = True
-    return data
+        d[key] = int(d.get(key, 0)) + by
+    except (TypeError, ValueError):
+        d[key] = by
 
 
 def _save(data):
@@ -97,12 +113,20 @@ def _save(data):
     _CACHE["data"] = data
     if not LEARNING_PATH:
         return
+    tmp = str(LEARNING_PATH) + ".tmp"
     try:
-        tmp = str(LEARNING_PATH) + ".tmp"
         Path(tmp).write_text(json.dumps(data, indent=2), encoding="utf-8")
         Path(tmp).replace(LEARNING_PATH)
-    except Exception:
-        pass
+        _CACHE["saveErr"] = None
+    except Exception as e:
+        # Must NOT crash the engine over a telemetry write -- but don't swallow it whole
+        # either: record it (Health/diag can surface "learning not persisting") and drop
+        # the half-written tmp so it can't masquerade as good data.
+        _CACHE["saveErr"] = str(e)
+        try:
+            Path(tmp).unlink()
+        except Exception:
+            pass
 
 
 def _ensure(data, key):
@@ -120,17 +144,17 @@ def observe_match(mode_key, outcome=None, durationS=None, lancer=None):
     with _LOCK:
         data = load()
         m = _ensure(data, mode_key)["observed"]
-        m["matches"] += 1
+        _inc(m, "matches")
         o = str(outcome or "").lower()
         if o in ("win", "won"):
-            m["wins"] += 1
+            _inc(m, "wins")
         elif o in ("loss", "lost", "lose"):
-            m["losses"] += 1
+            _inc(m, "losses")
         if isinstance(durationS, (int, float)) and durationS > 0:
             m["durations"].append(int(durationS))
             del m["durations"][:-_DUR_KEEP]
         if lancer:
-            m["lancers"][lancer] = m["lancers"].get(lancer, 0) + 1
+            _inc(m["lancers"], lancer)
         _save(data)
     return True
 
@@ -145,7 +169,7 @@ def observe_event(mode_key, kind):
     with _LOCK:
         data = load()
         m = _ensure(data, mode_key or "unknown")["observed"]
-        m[field] += 1
+        _inc(m, field)
         _save(data)
     return True
 

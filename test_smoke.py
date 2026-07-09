@@ -114,10 +114,49 @@ def test_ver_tuple():
     check("ver: equal", vt("20.7") == vt("20.7"))
 
 
+# --- 11) text-mode subprocess must decode safely (no UnicodeDecodeError reader-thread crash) --
+def test_subprocess_decode_safe():
+    # A helper/CLI (netsh, tasklist, ffmpeg, sd-cli, llama-server...) can emit bytes the locale
+    # codec (cp1252) can't decode. With text=True and STRICT errors the subprocess reader thread
+    # dies with UnicodeDecodeError and the captured output is lost -- a recurring diag-log crash.
+    # Every text-mode call must set errors= (or route through _proc.run, which injects it).
+    import glob
+    here = os.path.dirname(os.path.abspath(__file__))
+    bad = []
+    for fp in glob.glob(os.path.join(here, "*.py")):
+        if os.path.basename(fp) == "test_smoke.py":
+            continue
+        lines = open(fp, encoding="utf-8").read().splitlines()
+        for i, ln in enumerate(lines):
+            if "text=True" in ln or "universal_newlines=True" in ln:
+                window = "\n".join(lines[max(0, i - 2):i + 3])   # the call can span a couple lines
+                if "errors=" not in window and "_proc.run" not in window:
+                    bad.append("%s:%d" % (os.path.basename(fp), i + 1))
+    check("subprocess: every text=True call sets errors= (%s)" % (", ".join(bad) or "clean"), not bad)
+    import fragroute_proc as proc
+    import subprocess
+    seen = {}
+    real = subprocess.Popen
+
+    class _Probe:
+        def __init__(self, args, **kw):
+            seen.update(kw)
+            raise RuntimeError("halt-before-spawn")
+    subprocess.Popen = _Probe
+    try:
+        try:
+            proc.run(["noop"], capture_output=True, text=True)
+        except Exception:
+            pass
+    finally:
+        subprocess.Popen = real
+    check("proc.run(text=True) injects errors=replace", seen.get("errors") == "replace")
+
+
 def main():
     for t in (test_atomic_write, test_host_allowlist, test_prompt_injection_clause,
               test_live_mode_gate, test_proc_job, test_regionlock_sweep, test_capture_modules,
-              test_license_revoke, test_public_ip, test_ver_tuple):
+              test_license_revoke, test_public_ip, test_ver_tuple, test_subprocess_decode_safe):
         print("[%s]" % t.__name__)
         try:
             t()

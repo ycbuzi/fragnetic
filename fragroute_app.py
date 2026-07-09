@@ -278,7 +278,11 @@ def build_tray(url, on_quit):
         return None
 
     png = first_existing(icon_paths()["png"])
-    image = Image.open(png) if png else Image.new("RGBA", (64, 64), (255, 47, 146, 255))
+    # A corrupt/locked icon file must not crash app startup -- fall back to a solid image.
+    try:
+        image = Image.open(png) if png else Image.new("RGBA", (64, 64), (255, 47, 146, 255))
+    except Exception:
+        image = Image.new("RGBA", (64, 64), (255, 47, 146, 255))
 
     def toggle_window(icon, item):
         w = WIN.get("window")
@@ -1314,7 +1318,10 @@ def run_appmode_window(url, httpd):
         watch = threading.Thread(target=lambda: (stop.wait(), icon.stop()),
                                  daemon=True)
         watch.start()
-        icon.run()
+        try:
+            icon.run()
+        except Exception:
+            pass          # a tray runtime error must NOT skip httpd.shutdown() below
     else:
         print("FRAGROUTE running. Close this window / press Ctrl+C to quit.")
         try:

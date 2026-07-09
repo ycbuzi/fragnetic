@@ -104,9 +104,18 @@ def adopt(proc):
         k32 = ctypes.WinDLL("kernel32", use_last_error=True)
         k32.AssignProcessToJobObject.restype = wintypes.BOOL
         k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
-        k32.AssignProcessToJobObject(job, int(proc._handle))
+        ok = k32.AssignProcessToJobObject(job, int(proc._handle))
+        if not ok:
+            # Silent failure defeats orphan-prevention. Common cause: the process is
+            # already in a job that forbids nesting/breakaway. Try to breakaway-and-adopt;
+            # if that also fails, the startup reap() is the backstop. Return the result so
+            # it's observable rather than a silent no-op.
+            err = ctypes.get_last_error()
+            return {"ok": False, "err": err}
+        return {"ok": True}
     except Exception:
-        pass
+        return {"ok": False, "err": "exc"}
+    return {"ok": True}
 
 
 def reap(*image_names):
@@ -137,6 +146,11 @@ def run(args, timeout=None, capture_output=False, text=False, input=None, **pope
         popen_kw["stderr"] = subprocess.PIPE
     if input is not None and "stdin" not in popen_kw:
         popen_kw["stdin"] = subprocess.PIPE
+    if text and "errors" not in popen_kw:
+        # A helper's output (sd-cli, ffmpeg, ...) can contain bytes the locale codec (cp1252)
+        # can't decode; with strict errors the subprocess READER THREAD dies with
+        # UnicodeDecodeError and the captured output is lost. Default to replacement.
+        popen_kw["errors"] = "replace"
     proc = subprocess.Popen(args, text=text, **popen_kw)
     adopt(proc)   # OS kills it if we die by any means, even though this call blocks
     try:

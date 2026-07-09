@@ -58,7 +58,7 @@ def find_fragpunk_pids():
     shipping, generic = [], []
     try:
         out = subprocess.run(["tasklist", "/fo", "csv", "/nh"],
-                             capture_output=True, text=True, timeout=6,
+                             capture_output=True, text=True, errors="replace", timeout=6,
                              creationflags=_NO_WINDOW).stdout
         for line in out.splitlines():
             cols = [c.strip('" ') for c in line.split('","')]

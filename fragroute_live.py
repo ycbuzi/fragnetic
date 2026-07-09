@@ -139,6 +139,20 @@ def start(get_frame, get_mode, optin_getter, callout=None, interval=0.25, conf_t
     with _LOCK:
         if _LIVE["running"]:
             return {"ok": True, "already": True, **status()}
+        _old = _LIVE.get("thread")
+        _LIVE["thread"] = None
+    # A rapid stop()->start() could still have the previous loop winding down. If we spawned
+    # now, TWO detector loops would run at once -- doubling the per-frame GPU cost mid-match
+    # (a direct FPS hit, the one thing we never do). running is already False here, so the old
+    # loop WILL exit; join it first. _loop never takes _LOCK, so this can't deadlock.
+    if _old is not None and _old.is_alive():
+        try:
+            _old.join(timeout=1.0)
+        except Exception:
+            pass
+    with _LOCK:
+        if _LIVE["running"]:
+            return {"ok": True, "already": True, **status()}
         try:
             mode = get_mode()
             ok, tier = allowed(mode, bool(optin_getter()), admin=bool(admin_getter and admin_getter()))
@@ -158,6 +172,15 @@ def start(get_frame, get_mode, optin_getter, callout=None, interval=0.25, conf_t
 
 
 def stop(reason="stopped"):
-    _LIVE["running"] = False
-    _LIVE["stopReason"] = reason
+    with _LOCK:
+        _LIVE["running"] = False
+        _LIVE["stopReason"] = reason
+        th = _LIVE.get("thread")
+    # join OUTSIDE the lock (_loop never takes _LOCK, so no deadlock) so a caller that
+    # stops-then-starts can rely on the old loop being gone.
+    if th is not None and th.is_alive():
+        try:
+            th.join(timeout=1.0)
+        except Exception:
+            pass
     return {"ok": True, **status()}

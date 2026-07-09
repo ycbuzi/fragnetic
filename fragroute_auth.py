@@ -126,9 +126,19 @@ def _load():
 
 
 def _save(d):
+    # Atomic (tmp + os.replace) AND wrapped: a disk-full/permission error must not crash
+    # the caller (login/signup) mid-flow. Returns True on success, False on failure.
     tmp = str(_path()) + ".tmp"
-    Path(tmp).write_text(json.dumps(d, indent=2), encoding="utf-8")
-    os.replace(tmp, _path())
+    try:
+        Path(tmp).write_text(json.dumps(d, indent=2), encoding="utf-8")
+        os.replace(tmp, str(_path()))
+        return True
+    except Exception:
+        try:
+            os.remove(tmp)
+        except Exception:
+            pass
+        return False
 
 
 def _hash(password, salt_b):

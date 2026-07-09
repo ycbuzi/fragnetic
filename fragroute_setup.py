@@ -99,8 +99,11 @@ def _dest(item):
 def is_present(item):
     p = _dest(item)
     try:
-        # present + at least 60% of expected size (guards truncated downloads)
-        return p.exists() and p.stat().st_size >= item.get("approxMB", 0) * 1048576 * 0.6
+        # present + within a tight band of the expected size. dest is only ever created from a
+        # fully-downloaded (and, where a hash exists, sha256-verified) file, so this mainly
+        # guards on-disk corruption / manual truncation. 0.85 (was 0.6) rejects a grossly
+        # truncated file while still tolerating approxMB being a rounded estimate.
+        return p.exists() and p.stat().st_size >= item.get("approxMB", 0) * 1048576 * 0.85
     except Exception:
         return False
 
@@ -249,6 +252,14 @@ def _download(item):
                     pct = int(100 * done / total) if total else 0
                     _PROG[key] = {"status": ("resuming" if resume_from else "downloading"), "pct": pct,
                                   "mb": round(done / 1048576), "totalMb": round((total or item["approxMB"] * 1048576) / 1048576)}
+        # Truncation guard: a dropped or proxy-closed stream can hit EOF early WITHOUT raising,
+        # so the read-loop above would treat a partial file as complete. If the server gave us
+        # a size, require we actually got all of it. Raising (not returning) reuses the except
+        # handler below: the plain-file .part is KEPT so the next run resumes via Range, and
+        # zip/gz temps are cleaned. This catches truncation even for items that ship no sha256
+        # (the hash check further down only runs when a hash is present).
+        if total and done < total:
+            raise RuntimeError("incomplete download: got %d of %d bytes (will resume)" % (done, total))
         if is_zip:
             _PROG[key]["status"] = "extracting"
             with zipfile.ZipFile(tmp) as z:

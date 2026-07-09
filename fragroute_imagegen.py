@@ -17,7 +17,9 @@ import threading
 import time
 from pathlib import Path
 
-APP_IMG_BUILD = "img-1"
+import fragroute_proc as _proc   # orphan-proof helpers (shared Windows Job Object)
+
+APP_IMG_BUILD = "img-2"          # img-2: job-adopt sd-cli so a GPU image-gen can't orphan
 
 IMG_DIR = None             # set by engine; default <module|exe>/sd  (binary + model)
 OUT_DIR = None             # set by engine; where generated PNGs are written
@@ -99,6 +101,7 @@ def generate(prompt, negative=None, steps=DEFAULT_STEPS, width=None,
         if _STATE["busy"]:
             return {"ok": False, "message": "already generating an image"}
         _STATE["busy"] = True
+    p = None
     try:
         stamp = time.strftime("%Y%m%d_%H%M%S", time.localtime())
         out = _out_dir() / ("gen_%s.png" % stamp)
@@ -116,8 +119,10 @@ def generate(prompt, negative=None, steps=DEFAULT_STEPS, width=None,
         if os.name == "nt":
             flags |= 0x00004000                               # BELOW_NORMAL_PRIORITY
         try:
-            p = subprocess.run(args, capture_output=True, text=True,
-                               timeout=timeout, creationflags=flags)
+            # _proc.run job-adopts the sd-cli child so a long GPU image-gen can't
+            # orphan (and keep hammering the GPU) if we're hard-killed mid-generation.
+            p = _proc.run(args, capture_output=True, text=True,
+                          timeout=timeout, creationflags=flags)
         except subprocess.TimeoutExpired:
             _STATE["error"] = "generation timed out"
             return {"ok": False, "message": "generation timed out"}
@@ -125,7 +130,7 @@ def generate(prompt, negative=None, steps=DEFAULT_STEPS, width=None,
             _STATE.update(last=str(out), error=None, model=Path(model).name)
             return {"ok": True, "file": str(out), "name": out.name,
                     "message": "Generated %s" % out.name}
-        tail = (p.stderr or p.stdout or "")[-200:]
+        tail = ((p.stderr or p.stdout or "") if p is not None else "no output from generator")[-200:]
         _STATE["error"] = tail
         return {"ok": False, "message": "generation failed: %s" % tail}
     finally:

@@ -10,7 +10,9 @@ import tempfile
 import threading
 from pathlib import Path
 
-APP_TTS_BUILD = "tts-1"
+import fragroute_proc as _proc   # orphan-proof helpers (shared Windows Job Object)
+
+APP_TTS_BUILD = "tts-2"          # tts-2: job-adopt piper/ffplay so a callout can't orphan
 
 TTS_DIR = None
 _NOWIN = {}
@@ -71,8 +73,10 @@ def synth(text, out_wav, voice=None, rate=None):
     if rate:
         args += ["--length_scale", str(rate)]
     try:
-        subprocess.run(args, input=(text or "").encode("utf-8", "ignore"),
-                       capture_output=True, timeout=60, **_NOWIN)
+        # _proc.run job-adopts the piper child so it can't orphan if we're hard-killed
+        # while it's rendering (blocking run alone would leave it running).
+        _proc.run(args, input=(text or "").encode("utf-8", "ignore"),
+                  capture_output=True, timeout=60, **_NOWIN)
         return Path(out_wav).exists() and Path(out_wav).stat().st_size > 1000
     except Exception:
         return False
@@ -92,7 +96,7 @@ def speak(text, voice=None, rate=None):
             return True
         except Exception:
             try:
-                subprocess.Popen(["ffplay", "-nodisp", "-autoexit", wav], **_NOWIN)
+                _proc.adopt(subprocess.Popen(["ffplay", "-nodisp", "-autoexit", wav], **_NOWIN))
                 return True
             except Exception:
                 return False

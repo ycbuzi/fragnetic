@@ -69,7 +69,7 @@ def available():
         return False
     try:
         p = subprocess.run(["netsh", "advfirewall", "show", "allprofiles", "state"],
-                           capture_output=True, text=True, timeout=8, **_NOWIN)
+                           capture_output=True, text=True, errors="replace", timeout=8, **_NOWIN)
         return p.returncode == 0
     except Exception:
         return False
@@ -180,7 +180,11 @@ def plan(block_map):
 # --------------------------------------------------------------------------- #
 def _run(cmd):
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, timeout=20, **_NOWIN)
+        # errors="replace": netsh emits localized firewall text that isn't valid cp1252 (bytes
+        # like 0x81/0x8f). WITHOUT this, the subprocess reader thread dies with UnicodeDecodeError,
+        # the output is lost, and the firewall op looks failed/unverified. (Root cause of a
+        # recurring diag-log crash every firewall reconcile.)
+        p = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=20, **_NOWIN)
         return p.returncode, (p.stdout or "") + (p.stderr or "")
     except Exception as e:
         return 1, str(e)

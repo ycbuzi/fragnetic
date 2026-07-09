@@ -394,6 +394,19 @@ def is_recording():
     return p is not None and (p.poll() is None)
 
 
+def elapsed():
+    """Seconds the current recording has been running (0 when idle). Lets callers enforce a
+    max-duration cap so a stuck match-state machine can't record across many matches into one
+    unbounded file."""
+    try:
+        if not is_recording():
+            return 0
+        st = _STATE.get("started") or 0
+        return max(0, int(time.time() - st)) if st else 0
+    except Exception:
+        return 0
+
+
 def has_footage(base_dir=None):
     """True if the current ring has real segments worth saving -- lets us salvage a
     full-match recording even if the ffmpeg process died mid-match."""
@@ -613,6 +626,21 @@ def _save_concat(ff, parts, out, timeout, tail_seconds=None):
     tail_seconds trims the audio to the last N sec for a rolling clip. Falls back to
     a plain stream-copy when there's no separate audio (dshow path / video-only).
     Returns (rc, log)."""
+    # The ring pruner runs concurrently and deletes the OLDEST segments to keep the buffer
+    # bounded, so a path selected a moment ago in _recent_segments() may already be gone (or a
+    # just-rotated one still be 0 bytes). Drop those NOW -- otherwise the concat demuxer (or the
+    # concat: fallback) fails the ENTIRE save on one missing file and the clip/match is lost.
+    _existing = []
+    for _p in parts:
+        try:
+            _rp = Path(_p).resolve()
+            if _rp.exists() and _rp.stat().st_size > 0:
+                _existing.append(_rp)
+        except Exception:
+            pass
+    if not _existing:
+        return 1, "no readable segments (ring rotated) -- try again in a moment"
+    parts = _existing
     # ffmpeg concat DEMUXER via a list file -- a long full match is hundreds of .ts
     # segments, and the "concat:a|b|...|z" protocol string blows past Windows'
     # command-line length limit (WinError 206 "filename too long"), failing the WHOLE

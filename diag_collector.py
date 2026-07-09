@@ -44,7 +44,7 @@ def is_private(ip):
 def game_conns():
     try:
         tl = subprocess.run(["tasklist", "/fo", "csv", "/nh"],
-                            capture_output=True, text=True).stdout
+                            capture_output=True, text=True, errors="replace").stdout
         pids = set()
         for line in tl.splitlines():
             c = [x.strip('" ') for x in line.split('","')]
@@ -52,7 +52,7 @@ def game_conns():
                 pids.add(c[1])
         if not pids:
             return None, []
-        ns = subprocess.run(["netstat", "-ano"], capture_output=True, text=True).stdout
+        ns = subprocess.run(["netstat", "-ano"], capture_output=True, text=True, errors="replace").stdout
         est = []
         for line in ns.splitlines():
             p = line.split()

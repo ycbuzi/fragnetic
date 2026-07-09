@@ -140,7 +140,7 @@ def _vulkan_device_count():
         if binary and kind == "vulkan":
             flags = 0x08000000 if os.name == "nt" else 0      # CREATE_NO_WINDOW
             out = subprocess.run([binary, "--list-devices"], capture_output=True,
-                                 text=True, timeout=20, creationflags=flags)
+                                 text=True, errors="replace", timeout=20, creationflags=flags)
             blob = (out.stdout or "") + (out.stderr or "")
             idxs = set(re.findall(r"Vulkan(\d+)", blob))
             if idxs:
@@ -207,12 +207,23 @@ def available():
     return bool(find_model()) and bool(find_binary()[0])
 
 
-def _free_port():
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    p = s.getsockname()[1]
-    s.close()
-    return p
+def _free_port(exclude=()):
+    """Ask the OS for a free ephemeral port. `exclude` skips ports already handed to a server we
+    own (text vs vision): both call this under _LOCK, but the OS can hand the just-freed number
+    to the second probe, so without this a close-together text+vision start collides on one port
+    and one llama-server fails to bind."""
+    exclude = {p for p in (exclude or ()) if p}
+    last = 0
+    for _ in range(20):
+        s = socket.socket()
+        try:
+            s.bind(("127.0.0.1", 0))
+            last = s.getsockname()[1]
+        finally:
+            s.close()
+        if last not in exclude:
+            return last
+    return last
 
 
 def _health(port, timeout=2):
@@ -273,7 +284,7 @@ def ensure_running(timeout=240):
                     _stop_state(_VSTATE)
                 except Exception:
                     pass
-            port = _free_port()
+            port = _free_port(exclude=[_VSTATE.get("port")])   # never reuse the vision server's port
             # The 1650 SUPER has only ~3.5GB free, so the fast 3B's KV cache must
             # stay small or it OOMs at startup. Use a smaller context on that card.
             ctx_tok = 2048 if label == "fast" else CTX_TOKENS
@@ -294,9 +305,15 @@ def ensure_running(timeout=240):
             _proc.adopt(proc)   # OS kills it if we die by any means (no orphan on the GPU)
             _STATE.update(proc=proc, port=port, kind=kind, model=Path(model).name,
                           device=device, label=label, ready=False, starting=True, error=None)
+        # Snapshot the (port, proc) we'll wait on WHILE STILL HOLDING THE LOCK -- covers both the
+        # just-started and the 'starting_right' fall-through paths. Re-reading _STATE after the lock
+        # let a concurrent ensure_running() swap the server between the two reads, yielding a
+        # mismatched port-from-A / proc-from-B pair (poll the wrong server -> false timeout).
+        port = _STATE["port"]
+        proc = _STATE["proc"]
     # poll health outside the lock so other calls can see 'starting'
-    port = _STATE["port"]
-    proc = _STATE["proc"]
+    if proc is None:
+        return False
     t0 = time.time()
     while time.time() - t0 < timeout:
         if proc.poll() is not None:
@@ -507,7 +524,7 @@ def ensure_vision_running(timeout=150):
     last_err = "vision startup failed"
     for device in devices:
         with _LOCK:
-            port = _free_port()
+            port = _free_port(exclude=[_STATE.get("port")])   # never reuse the text server's port
             args = [binary, "-m", model, "--mmproj", mmproj, "--host", "127.0.0.1",
                     "--port", str(port), "-c", "4096", "-ngl", "99", "--no-warmup"]
             if device:
@@ -527,7 +544,8 @@ def ensure_vision_running(timeout=150):
                 # exited at startup (most likely 4GB OOM on Vulkan1) -> try next GPU
                 last_err = "vision server exited on %s (likely VRAM)" % (device or "cpu")
                 break
-            if _health(_VSTATE["port"]):
+            if _health(port):   # local snapshot (this iteration's server), not _VSTATE["port"]
+                                # which a concurrent vision start could have swapped
                 _VSTATE.update(ready=True, starting=False, device=device)
                 return True
             time.sleep(1)

@@ -303,9 +303,21 @@ def capture_match_end(match_dur=None):
         if not get_setting("autoClipMatchEnd", True):
             diag("capture", True, msg="match-end: auto-save OFF; skipped")
             return
-        if match_dur is not None and match_dur < 45:
+        # A full-match recorder normally stops at the menu transition. If state detection ever
+        # gets stuck (never commits 'menu'), the flap-tolerance below would keep ONE recording
+        # growing across many matches / until the disk fills. Past a hard cap (longer than any
+        # real match) force the save+stop even on a flap, so recordings can't span boundaries.
+        capped = False
+        try:
+            cap_min = int(get_setting("maxRecordMinutes", 150))
+            capped = bool(full) and cap_min > 0 and fragroute_capture.elapsed() >= cap_min * 60
+        except Exception:
+            capped = False
+        if match_dur is not None and match_dur < 45 and not capped:
             diag("capture", True, msg="match-end: %ss too short (flap/login) -- keep recording" % match_dur)
             return
+        if capped:
+            diag("capture", True, msg="match-end: recording hit the %dmin cap -- forcing save" % cap_min)
         if full:
             if recording:
                 fragroute_capture.stop()                   # finalize the segments first
@@ -1354,7 +1366,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "20.8"    # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "20.10"   # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 # Lemon Squeezy checkout link (the app's Buy/Unlock buttons open this in the system
 # browser). Get it from your LS dashboard -> Products -> "Share" / checkout link.
@@ -2312,7 +2324,9 @@ def refresh_latency():
 
     for entry in all_config_entries():
         t = threading.Thread(target=worker,
-                             args=(entry["name"], entry.get("endpoint_host")))
+                             args=(entry["name"], entry.get("endpoint_host")),
+                             daemon=True)   # a hung ping must NOT become a non-daemon zombie that
+                                            # blocks app exit / piles up across repeated refreshes
         t.start()
         threads.append(t)
     for t in threads:
@@ -2451,6 +2465,11 @@ def disconnect(_kind=None, _wg=None):
 
 def _connect_entry(region_id, cfg):
     """Bring up a specific config entry (auto-drops the old tunnel first)."""
+    # cfg can be None -- region_best_config() returns None if the region's config list
+    # was cleared by a concurrent rescan (HTTP handler threads run in parallel) between
+    # connect_region()'s check and this call. Bail cleanly instead of dereferencing None.
+    if not cfg or not isinstance(cfg, dict) or not cfg.get("name"):
+        return {"ok": False, "message": "No VPN config available for that region (try Re-scan)."}
     prev_tunnel = STATE.get("active_tunnel")   # the route to fall back to if bad
     _mark_route_change()
     # drop existing tunnel first for a clean switch
@@ -2711,7 +2730,7 @@ def _game_connections(pids):
         else:
             # Linux/mac best effort via ss; matching by pid is OS-specific
             out = subprocess.run(["ss", "-tunp"], capture_output=True,
-                                 text=True, timeout=8).stdout
+                                 text=True, errors="replace", timeout=8).stdout
             for line in out.splitlines():
                 if not any(("pid=" + pid) in line for pid in pids):
                     continue
@@ -4585,6 +4604,16 @@ def _autodetect_tick():
                         and fragroute_capture is not None
                         and not fragroute_capture.is_recording()):
                     AUTODETECT["matchArmed"] = True
+                    # The ENTERING MATCH OCR path was skipped for a match we joined in progress,
+                    # so matchMode is still unset -> it'd log/learn as 'unknown'. Classify ONCE
+                    # here (gated by matchArmed above + the unset check = one-shot, not per-tick).
+                    if not AUTODETECT.get("matchMode") and get_setting("overlayOcr", True):
+                        try:
+                            gm = read_game_mode(tries=2)
+                            if fragroute_modes is not None and gm.get("raw"):
+                                AUTODETECT["matchMode"] = fragroute_modes.classify(gm.get("raw", ""))[0]
+                        except Exception:
+                            pass
                     capture_auto_start("match (joined in progress)")
             else:
                 LIVE_STATE["inMatch"] = False
@@ -4606,6 +4635,16 @@ def _autodetect_tick():
             LIVE_STATE.update(inMatch=False, since=0.0)
             if fragroute_live is not None:
                 fragroute_live.stop("game closed")
+            # If the game vanished STRAIGHT out of a match (crash / force-quit skips the 'menu'
+            # transition), the match-end cleanup below never runs -- leaving matchStartTs / matchMode
+            # / currentServer / matchArmed STALE into the next launch (next match shows the old mode
+            # until re-OCR'd, and a stale matchStartTs skews the timer). Hard-reset here. We do NOT
+            # log a partial/crashed match -> no learning-stat pollution from an abnormal exit.
+            AUTODETECT["matchStartTs"] = None
+            AUTODETECT["currentServer"] = None
+            AUTODETECT["matchArmed"] = False
+            AUTODETECT["matchIsTraining"] = False
+            AUTODETECT["matchMode"] = None
 
         # ENTERING MENU (from launch or after a match)
         if committed == "menu":
@@ -8147,6 +8186,14 @@ class Handler(BaseHTTPRequestHandler):
             f = (_maps_dir() / name) if (name and "/" not in name and "\\" not in name) else None
             if not f or not f.exists():
                 return self._json({"error": "not found"}, 404)
+            # containment: resolve() follows symlinks -- a symlink named 'x' in the maps
+            # dir could point at any file, and we run elevated. Reject anything whose real
+            # path escapes the maps dir.
+            try:
+                if _maps_dir().resolve() not in f.resolve().parents:
+                    return self._json({"error": "not found"}, 404)
+            except Exception:
+                return self._json({"error": "not found"}, 404)
             return self._bytes(f.read_bytes(), "image/png")
 
         if path == "/api/ai/image/file":
@@ -8219,6 +8266,13 @@ class Handler(BaseHTTPRequestHandler):
             for base in (_captures_dir() / "edited", _captures_dir() / "clips"):
                 fp = base / name
                 if fp.exists():
+                    # containment: reject a symlink whose real path escapes the clips dir
+                    # (we run elevated, so this would otherwise disclose arbitrary files).
+                    try:
+                        if base.resolve() not in fp.resolve().parents:
+                            continue
+                    except Exception:
+                        continue
                     return self._serve_file_range(str(fp), "video/mp4")
             return self._json({"error": "not found"}, 404)
 

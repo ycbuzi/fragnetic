@@ -608,7 +608,10 @@ def _llm_answer(ctx, msg):
     rb = ctx.get("rag_budget")
     if rb:
         try:
-            budget = rb() or budget
+            _b = rb()
+            if isinstance(_b, dict):
+                budget.update(_b)   # MERGE, not replace -- a partial dict must not drop
+                                    # the defaults (budget["facts"]/["bits"] used below).
         except Exception:
             pass
     bits = []
