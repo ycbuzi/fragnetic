@@ -231,7 +231,11 @@ def capture_auto_start(reason="match"):
         # full-match recording => unlimited segments (ring_segments=0, no rolling
         # overwrite) so the WHOLE game is kept; else the rolling highlight buffer.
         full = get_setting("fullMatchRecording", True)
-        opts = {"ring_segments": 0} if full else {}
+        # Full match keeps EVERY segment, so use larger (30s) segments -> far fewer files
+        # (a 20-min match is ~40 segments, not ~120), which is more efficient and keeps
+        # the save's concat list short even if a recording runs long / spans a boundary.
+        # The rolling highlight buffer stays at the default small segment for precise trims.
+        opts = {"ring_segments": 0, "seg_seconds": 30} if full else {}
         r = fragroute_capture.start(_captures_dir(), opts)
         diag("capture", bool(r.get("ok")), msg="auto-start: %s" % r.get("message", ""))
         if r.get("ok"):
