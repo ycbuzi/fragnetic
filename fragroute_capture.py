@@ -613,7 +613,32 @@ def _save_concat(ff, parts, out, timeout, tail_seconds=None):
     tail_seconds trims the audio to the last N sec for a rolling clip. Falls back to
     a plain stream-copy when there's no separate audio (dshow path / video-only).
     Returns (rc, log)."""
-    concat = "concat:" + "|".join(str(p) for p in parts)
+    # ffmpeg concat DEMUXER via a list file -- a long full match is hundreds of .ts
+    # segments, and the "concat:a|b|...|z" protocol string blows past Windows'
+    # command-line length limit (WinError 206 "filename too long"), failing the WHOLE
+    # save and losing the match. A list file has no length cap. -safe 0 permits absolute
+    # paths (the app dir has spaces).
+    listfile = None
+    try:
+        _lf = Path(out).with_suffix(".concat.txt")
+        with open(_lf, "w", encoding="utf-8") as _fh:
+            for _p in parts:
+                # forward slashes: universally accepted by ffmpeg on Windows and avoids
+                # any concat-demuxer backslash-escape ambiguity. Single-quote-escape too.
+                _ap = str(Path(_p).resolve()).replace("\\", "/").replace("'", "'\\''")
+                _fh.write("file '%s'\n" % _ap)
+        listfile = _lf
+    except Exception:
+        listfile = None
+    concat_in = (["-f", "concat", "-safe", "0", "-i", str(listfile)] if listfile
+                 else ["-i", "concat:" + "|".join(str(p) for p in parts)])
+
+    def _cleanup_listfile():
+        try:
+            if listfile:
+                os.remove(listfile)
+        except Exception:
+            pass
     wav = None
     if _STATE.get("wasapi_audio") and fragroute_audio is not None:
         try:
@@ -636,7 +661,7 @@ def _save_concat(ff, parts, out, timeout, tail_seconds=None):
             wav = None
     if wav and Path(wav).exists() and Path(wav).stat().st_size > 1024:
         rc, log = _run([ff, "-hide_banner", "-loglevel", "error", "-y",
-                        "-i", concat, "-i", wav,
+                        *concat_in, "-i", wav,
                         "-map", "0:v:0", "-map", "1:a:0",
                         "-c:v", "copy", "-c:a", "aac", "-b:a", "160k",
                         "-movflags", "+faststart", "-shortest", str(out)],
@@ -646,11 +671,13 @@ def _save_concat(ff, parts, out, timeout, tail_seconds=None):
         except Exception:
             pass
         if rc == 0 and Path(out).exists():
+            _cleanup_listfile()
             return rc, log
         # mux failed -> fall through to a video-only copy so we never lose footage
     rc, log = _run([ff, "-hide_banner", "-loglevel", "error", "-y",
-                    "-i", concat, "-c", "copy", "-movflags", "+faststart", str(out)],
+                    *concat_in, "-c", "copy", "-movflags", "+faststart", str(out)],
                    timeout=timeout)
+    _cleanup_listfile()
     return rc, log
 
 
