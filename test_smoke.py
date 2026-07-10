@@ -178,11 +178,35 @@ def test_ollama_backend():
         L.configure_ollama(enabled=True, model="")
 
 
+# --- 13) semantic RAG: cosine ranking + keyword fallback (no network) -------------------------
+def test_semantic_rag():
+    import fragroute_learning as L
+    # fake embedder: encodes MEANING (not literal words) into 2 axes, so a query with no shared
+    # words still ranks the semantically-matching fact first -- the whole point of embeddings.
+    def emb(texts):
+        def v(t):
+            t = (t or "").lower()
+            revive = any(k in t for k in ("revive", "life saver", "bring back", "dead teammate", "downed"))
+            plant = any(k in t for k in ("plant", "converter", "attack"))
+            return [1.0 if revive else 0.0, 1.0 if plant else 0.0, 0.1]
+        return [v(t) for t in texts]
+    facts = [("shard_clash", {"trust": "official", "source": "x"}, "The Life Saver card can revive a downed ally."),
+             ("shard_clash", {"trust": "wiki", "source": "y"}, "Attackers plant the Converter to win the round.")]
+    L._FACT_EMB.clear()
+    res = L._semantic_facts("how do I bring back a dead teammate", facts, 2, emb)
+    check("semantic: revive query ranks the Life Saver fact first (no shared words)",
+          bool(res) and "Life Saver" in res[0]["fact"])
+    check("semantic: fact vectors got cached", len(L._FACT_EMB) == 2)
+    check("semantic: no-embed -> None (falls back to keyword)",
+          L._semantic_facts("x", facts, 2, lambda t: None) is None)
+    L._FACT_EMB.clear()
+
+
 def main():
     for t in (test_atomic_write, test_host_allowlist, test_prompt_injection_clause,
               test_live_mode_gate, test_proc_job, test_regionlock_sweep, test_capture_modules,
               test_license_revoke, test_public_ip, test_ver_tuple, test_subprocess_decode_safe,
-              test_ollama_backend):
+              test_ollama_backend, test_semantic_rag):
         print("[%s]" % t.__name__)
         try:
             t()

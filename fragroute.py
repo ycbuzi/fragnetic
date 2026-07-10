@@ -778,7 +778,11 @@ def _build_ai_ctx():
     if fragroute_learning is not None:
         ctx["mode_profile"] = fragroute_learning.profile
         ctx["learning_summary"] = fragroute_learning.summary
-        ctx["search_facts"] = fragroute_learning.search_facts
+        # ground the coach with SEMANTIC retrieval when an Ollama embed model is available
+        # (nomic-embed-text etc.); falls back to keyword overlap inside search_facts otherwise.
+        ctx["search_facts"] = (lambda q, n=8:
+            fragroute_learning.search_facts(q, n,
+                embedder=(fragroute_llm.embed if fragroute_llm is not None else None)))
     if fragroute_llm is not None:
         try:
             # Base the model choice on whether FragPunk is RUNNING, not "foreground".
@@ -1366,7 +1370,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "20.14"   # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "20.15"   # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 # Lemon Squeezy checkout link (the app's Buy/Unlock buttons open this in the system
 # browser). Get it from your LS dashboard -> Products -> "Share" / checkout link.
@@ -4297,6 +4301,7 @@ DEFAULT_SETTINGS = {
     "coachUseOllama": True,         # use the user's local Ollama models when it's running (auto-fallback to the bundled model)
     "ollamaModel": "",              # "" = auto-pick a chat model; else an exact Ollama model name (e.g. "qwen2.5:14b")
     "ollamaVisionModel": "",        # "" = auto-pick an image-capable model (if any pulled); else an exact vision model (e.g. "qwen2.5vl:7b")
+    "ollamaEmbedModel": "",         # "" = auto-detect an embedding model (e.g. nomic-embed-text) for semantic RAG; else an exact name
     "ollamaBase": "http://127.0.0.1:11434",  # Ollama endpoint (advanced; change only if you run it elsewhere)
     "autoMapCapture": True,         # auto-snap one map screenshot a few seconds into each match
     "autoRevertOnSwitch": True,     # undo a mid-match VPN switch that makes ping worse/dead
@@ -4363,7 +4368,8 @@ def _apply_ollama_settings():
             enabled=get_setting("coachUseOllama", True),
             base=get_setting("ollamaBase", "http://127.0.0.1:11434"),
             model=get_setting("ollamaModel", ""),
-            vision_model=get_setting("ollamaVisionModel", ""))
+            vision_model=get_setting("ollamaVisionModel", ""),
+            embed_model=get_setting("ollamaEmbedModel", ""))
     except Exception:
         pass
 

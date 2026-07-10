@@ -238,24 +238,76 @@ _STOP = set("the a an and or of to in on for with is are be can you your i my ho
             "what when where do does this that it as at by from".split())
 
 
-def search_facts(query, limit=8):
-    """RAG retrieval: return online facts most relevant to `query` (keyword overlap),
-    each with its mode + source + trust. Used to ground the local LLM in FragPunk."""
+_FACT_EMB = {}   # fact-text -> embedding vector (in-memory semantic-RAG cache; embed each fact once)
+
+
+def _cos(a, b):
+    s = na = nb = 0.0
+    for x, y in zip(a, b):
+        s += x * y
+        na += x * x
+        nb += y * y
+    return s / ((na ** 0.5) * (nb ** 0.5)) if (na and nb) else 0.0
+
+
+def _semantic_facts(query, all_facts, limit, embedder):
+    """Rank facts by embedding cosine similarity to the query (catches meaning the keyword
+    overlap misses). Returns ranked facts, or None if embeddings aren't available so the caller
+    falls back to keyword. Fact vectors are embedded once and cached."""
+    qv = embedder([query])
+    if not qv or not qv[0]:
+        return None
+    qv = qv[0]
+    need = [fact for _, _, fact in all_facts if fact not in _FACT_EMB]
+    if need:
+        vs = embedder(need)
+        if vs and len(vs) == len(need):
+            for fact, v in zip(need, vs):
+                _FACT_EMB[fact] = v
+    trust_bonus = {"official": 0.03, "wiki": 0.02, "creator": 0.01}
+    scored = []
+    for mk, f, fact in all_facts:
+        v = _FACT_EMB.get(fact)
+        if v is None:
+            continue
+        sim = _cos(qv, v) + trust_bonus.get(f.get("trust"), 0.0)
+        scored.append((sim, {"mode": mk, "fact": fact,
+                             "source": f.get("source"), "trust": f.get("trust")}))
+    if not scored:
+        return None
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [f for _, f in scored[:limit]]
+
+
+def search_facts(query, limit=8, embedder=None):
+    """RAG retrieval: return online facts most relevant to `query`, each with mode + source +
+    trust. Uses SEMANTIC similarity when an `embedder` is supplied (e.g. Ollama nomic-embed-text)
+    -- catches meaning keyword overlap misses -- and always falls back to keyword overlap."""
     data = load()
+    all_facts = [(mk, f, f.get("fact"))
+                 for mk, ent in data["modes"].items()
+                 for f in ent.get("online", []) if f.get("fact")]
+    if not all_facts:
+        return []
+    if embedder is not None:
+        try:
+            sem = _semantic_facts(query, all_facts, limit, embedder)
+            if sem:
+                return sem
+        except Exception:
+            pass
     q = set(w for w in re.findall(r"[a-z0-9]+", (query or "").lower())
             if len(w) > 2 and w not in _STOP)
     scored = []
     trust_rank = {"official": 3, "wiki": 2, "creator": 1}
-    for mk, ent in data["modes"].items():
+    for mk, f, fact in all_facts:
         mk_words = set(mk.split("_"))
-        for f in ent.get("online", []):
-            fl = f.get("fact", "").lower()
-            fw = set(re.findall(r"[a-z0-9]+", fl))
-            overlap = len(q & fw) + (2 if (q & mk_words) else 0)
-            if overlap:
-                scored.append((overlap + 0.1 * trust_rank.get(f.get("trust"), 0),
-                               {"mode": mk, "fact": f.get("fact"),
-                                "source": f.get("source"), "trust": f.get("trust")}))
+        fw = set(re.findall(r"[a-z0-9]+", fact.lower()))
+        overlap = len(q & fw) + (2 if (q & mk_words) else 0)
+        if overlap:
+            scored.append((overlap + 0.1 * trust_rank.get(f.get("trust"), 0),
+                           {"mode": mk, "fact": fact,
+                            "source": f.get("source"), "trust": f.get("trust")}))
     scored.sort(key=lambda x: x[0], reverse=True)
     return [f for _, f in scored[:limit]]
 

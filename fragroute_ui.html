@@ -5728,7 +5728,8 @@ async function _aiRenderBrain(){
     .concat(models.map(m=>'<option value="'+m+'">Ollama · '+m+'</option>'));
   const sig=opts.join('|')+'::'+want;
   if(sel._sig!==sig){ sel.innerHTML=opts.join(''); sel.value=want; sel._sig=sig; }   // only rebuild on change (don't fight the user mid-select)
-  if(hint)hint.textContent = o.up ? (o.active?('● '+(o.model||'')):'○ using bundled') : '○ Ollama offline';
+  if(hint)hint.textContent = (o.up ? (o.active?('● '+(o.model||'')):'○ using bundled') : '○ Ollama offline')
+                           + (o.embedActive?'  ·  ⚡ semantic RAG ('+(o.embedModel||'')+')':'');
   // vision picker (needs an image-capable Ollama model, e.g. `ollama pull qwen2.5vl:7b`)
   const vwrap=document.getElementById('aiVisWrap'), vsel=document.getElementById('aiVisSel'), vhint=document.getElementById('aiVisHint');
   if(vwrap&&vsel){

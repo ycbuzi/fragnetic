@@ -46,15 +46,16 @@ GEN_TOKENS = 480
 # ---------------------------------------------------------------------------
 OLLAMA = {"enabled": True, "base": "http://127.0.0.1:11434", "model": None,
           "vmodel": None,          # chosen VISION model (image-capable); "" = don't use Ollama for vision
+          "emodel": None,          # chosen EMBEDDING model for semantic RAG; "" = auto-detect
           "up": False, "models": [], "vmodels": [], "vmSig": None,
           "checkedTs": 0.0, "err": None}
 _OLLAMA_TTL = 6.0            # cache the up/models probe this long (cheap, non-blocking)
 
 
-def configure_ollama(enabled=None, base=None, model=None, vision_model=None):
+def configure_ollama(enabled=None, base=None, model=None, vision_model=None, embed_model=None):
     """Set the Ollama backend from the engine/settings. enabled=True means 'use Ollama when
     it's actually up + has a suitable model' (auto-fallback to bundled otherwise). vision_model
-    is the image-capable model to use for the coach's eyes (separate from the text model)."""
+    = the coach's eyes; embed_model = semantic RAG retrieval (nomic-embed-text etc.)."""
     if enabled is not None:
         OLLAMA["enabled"] = bool(enabled)
     if base:
@@ -63,6 +64,8 @@ def configure_ollama(enabled=None, base=None, model=None, vision_model=None):
         OLLAMA["model"] = (str(model).strip() or None)
     if vision_model is not None:
         OLLAMA["vmodel"] = (str(vision_model).strip() or None)
+    if embed_model is not None:
+        OLLAMA["emodel"] = (str(embed_model).strip() or None)
     OLLAMA["checkedTs"] = 0.0     # force a fresh probe on next use
 
 
@@ -164,6 +167,39 @@ def _ollama_vision_chat(prompt, image_paths, max_tokens, temperature, timeout, m
     return (j["choices"][0]["message"]["content"] or "").strip()
 
 
+def _ollama_embed_model():
+    """The Ollama EMBEDDING model for semantic RAG: the configured one, else auto-pick a model
+    with 'embed' in its name (nomic-embed-text, mxbai-embed, bge, all-minilm...). None if none."""
+    if OLLAMA["emodel"]:
+        return OLLAMA["emodel"]
+    for m in OLLAMA["models"]:
+        if "embed" in (m or "").lower():
+            return m
+    return None
+
+
+def _ollama_embed_active():
+    return bool(OLLAMA["enabled"]) and _ollama_probe() and bool(_ollama_embed_model())
+
+
+def embed(texts):
+    """Embed a list of strings via the user's Ollama embedding model. Returns a list of float
+    vectors (one per input), or None if unavailable/failed -> caller falls back to keyword RAG."""
+    if not texts or not _ollama_embed_active():
+        return None
+    try:
+        body = json.dumps({"model": _ollama_embed_model(), "input": list(texts)}).encode("utf-8")
+        req = urllib.request.Request(OLLAMA["base"] + "/api/embed", data=body,
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=30) as r:
+            j = json.loads(r.read().decode("utf-8", "ignore"))
+        embs = j.get("embeddings")
+        return embs if (embs and len(embs) == len(texts)) else None
+    except Exception as e:
+        OLLAMA["err"] = "embed: " + str(e)[:100]
+        return None
+
+
 def ollama_status():
     """Live Ollama backend status for the UI / health (forces a fresh probe)."""
     _ollama_probe(force=True)
@@ -173,7 +209,9 @@ def ollama_status():
             "active": _ollama_active(), "err": OLLAMA["err"],
             # vision: which installed models can see images, the chosen one, and whether it's live
             "visionModels": _detect_vision_models(), "visionModel": _ollama_vision_model(),
-            "visionConfigured": OLLAMA["vmodel"], "visionActive": _ollama_vision_active()}
+            "visionConfigured": OLLAMA["vmodel"], "visionActive": _ollama_vision_active(),
+            # embeddings: semantic RAG retrieval (nomic-embed-text etc.)
+            "embedModel": _ollama_embed_model(), "embedActive": _ollama_embed_active()}
 
 
 def _base_dir():
