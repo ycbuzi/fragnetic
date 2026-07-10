@@ -1545,7 +1545,12 @@
       <select id="aiBrainSel" style="margin-left:6px;padding:2px 6px;border-radius:6px" title="Which model answers. Ollama models run locally via your Ollama install — no download, your choice of model.">
         <option value="">Bundled (built-in)</option>
       </select>
-      <span id="aiBrainHint" style="margin-left:8px;opacity:.75"></span></div>
+      <span id="aiBrainHint" style="margin-left:8px;opacity:.75"></span>
+      <span id="aiVisWrap" style="margin-left:16px">👁️ <b>Vision:</b>
+        <select id="aiVisSel" style="margin-left:6px;padding:2px 6px;border-radius:6px" title="Which model reads screenshots/maps/scoreboards. Needs an image-capable Ollama model (e.g. run: ollama pull qwen2.5vl:7b).">
+          <option value="">Bundled (built-in)</option>
+        </select>
+        <span id="aiVisHint" style="margin-left:8px;opacity:.75"></span></span></div>
     <div class="ai-persona" id="aiPersona">
       <span class="ap-label">Coach vibe</span>
       <span id="apStyle" class="ap-style">adapting to how you chat…</span>
@@ -5724,6 +5729,23 @@ async function _aiRenderBrain(){
   const sig=opts.join('|')+'::'+want;
   if(sel._sig!==sig){ sel.innerHTML=opts.join(''); sel.value=want; sel._sig=sig; }   // only rebuild on change (don't fight the user mid-select)
   if(hint)hint.textContent = o.up ? (o.active?('● '+(o.model||'')):'○ using bundled') : '○ Ollama offline';
+  // vision picker (needs an image-capable Ollama model, e.g. `ollama pull qwen2.5vl:7b`)
+  const vwrap=document.getElementById('aiVisWrap'), vsel=document.getElementById('aiVisSel'), vhint=document.getElementById('aiVisHint');
+  if(vwrap&&vsel){
+    if(!o.up){ vwrap.style.display='none'; }
+    else{
+      vwrap.style.display='';
+      const vms=o.visionModels||[];
+      const vwant=o.visionConfigured||'';   // "" = bundled, "auto", or an exact model
+      const vopts=['<option value="">Bundled (built-in)</option>']
+        .concat(vms.length?['<option value="auto">Ollama · auto</option>']:[])
+        .concat(vms.map(m=>'<option value="'+m+'">Ollama · '+m+'</option>'));
+      const vsig=vopts.join('|')+'::'+vwant;
+      if(vsel._sig!==vsig){ vsel.innerHTML=vopts.join(''); vsel.value=vwant; vsel._sig=vsig; }
+      if(vhint)vhint.textContent = vms.length ? (o.visionActive?('● '+(o.visionModel||'')):'○ bundled')
+                                              : 'none — run: ollama pull qwen2.5vl:7b';
+    }
+  }
 }
 function _aiBrainPick(v){
   if(v===''){ aifSaveOpt('coachUseOllama',false); }
@@ -5731,6 +5753,7 @@ function _aiBrainPick(v){
   else { aifSaveOpt('coachUseOllama',true); aifSaveOpt('ollamaModel',v); }
   setTimeout(aiLlmStatus,250);
 }
+function _aiVisPick(v){ aifSaveOpt('ollamaVisionModel',v); setTimeout(aiLlmStatus,250); }  // ""=bundled, "auto", or a model
 (function _aiInit(){
   const send=document.getElementById('aiSend'), inp=document.getElementById('aiInput'),
         clr=document.getElementById('aiClear');
@@ -5743,6 +5766,8 @@ function _aiBrainPick(v){
   if(cnv)cnv.addEventListener('click',_aiToggleConverse);
   const brain=document.getElementById('aiBrainSel');
   if(brain)brain.addEventListener('change',()=>_aiBrainPick(brain.value));
+  const vis=document.getElementById('aiVisSel');
+  if(vis)vis.addEventListener('change',()=>_aiVisPick(vis.value));
   _aiConverseSync();
   _aiRenderChips(); _aiEmpty(); aiLlmStatus();
   setInterval(()=>{ if(_coachOnTab()&&!document.hidden)aiLlmStatus(); }, 5000);

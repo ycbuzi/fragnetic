@@ -1366,7 +1366,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "20.13"   # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "20.14"   # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 # Lemon Squeezy checkout link (the app's Buy/Unlock buttons open this in the system
 # browser). Get it from your LS dashboard -> Products -> "Share" / checkout link.
@@ -4296,6 +4296,7 @@ DEFAULT_SETTINGS = {
     # --- AI Coach brain (optional Ollama backend) ---
     "coachUseOllama": True,         # use the user's local Ollama models when it's running (auto-fallback to the bundled model)
     "ollamaModel": "",              # "" = auto-pick a chat model; else an exact Ollama model name (e.g. "qwen2.5:14b")
+    "ollamaVisionModel": "",        # "" = auto-pick an image-capable model (if any pulled); else an exact vision model (e.g. "qwen2.5vl:7b")
     "ollamaBase": "http://127.0.0.1:11434",  # Ollama endpoint (advanced; change only if you run it elsewhere)
     "autoMapCapture": True,         # auto-snap one map screenshot a few seconds into each match
     "autoRevertOnSwitch": True,     # undo a mid-match VPN switch that makes ping worse/dead
@@ -4361,7 +4362,8 @@ def _apply_ollama_settings():
         fragroute_llm.configure_ollama(
             enabled=get_setting("coachUseOllama", True),
             base=get_setting("ollamaBase", "http://127.0.0.1:11434"),
-            model=get_setting("ollamaModel", ""))
+            model=get_setting("ollamaModel", ""),
+            vision_model=get_setting("ollamaVisionModel", ""))
     except Exception:
         pass
 

@@ -26,7 +26,7 @@ from pathlib import Path
 
 import fragroute_proc as _proc   # orphan-proof helpers (shared Windows Job Object)
 
-APP_LLM_BUILD = "llm-3"          # llm-3: optional Ollama backend (use the user's models, auto-fallback)
+APP_LLM_BUILD = "llm-4"          # llm-4: Ollama backend also serves VISION (image-capable models) + prewarm skips
 
 LLM_DIR = None                  # set by fragroute.main(); else <module|exe>/llm
 _LOCK = threading.Lock()
@@ -45,19 +45,24 @@ GEN_TOKENS = 480
 #  else fall back to the bundled server -- so a buyer WITHOUT Ollama is unaffected.
 # ---------------------------------------------------------------------------
 OLLAMA = {"enabled": True, "base": "http://127.0.0.1:11434", "model": None,
-          "up": False, "models": [], "checkedTs": 0.0, "err": None}
+          "vmodel": None,          # chosen VISION model (image-capable); "" = don't use Ollama for vision
+          "up": False, "models": [], "vmodels": [], "vmSig": None,
+          "checkedTs": 0.0, "err": None}
 _OLLAMA_TTL = 6.0            # cache the up/models probe this long (cheap, non-blocking)
 
 
-def configure_ollama(enabled=None, base=None, model=None):
+def configure_ollama(enabled=None, base=None, model=None, vision_model=None):
     """Set the Ollama backend from the engine/settings. enabled=True means 'use Ollama when
-    it's actually up + has a chat model' (auto-fallback to bundled otherwise)."""
+    it's actually up + has a suitable model' (auto-fallback to bundled otherwise). vision_model
+    is the image-capable model to use for the coach's eyes (separate from the text model)."""
     if enabled is not None:
         OLLAMA["enabled"] = bool(enabled)
     if base:
         OLLAMA["base"] = str(base).rstrip("/")
     if model is not None:
         OLLAMA["model"] = (str(model).strip() or None)
+    if vision_model is not None:
+        OLLAMA["vmodel"] = (str(vision_model).strip() or None)
     OLLAMA["checkedTs"] = 0.0     # force a fresh probe on next use
 
 
@@ -105,13 +110,70 @@ def _ollama_chat(messages, max_tokens, temperature, timeout):
     return (j["choices"][0]["message"]["content"] or "").strip()
 
 
+def _detect_vision_models():
+    """Which installed Ollama models can SEE images (their capabilities include 'vision').
+    Uses /api/show per model, but only re-probes when the model list actually changes."""
+    sig = ",".join(sorted(OLLAMA["models"]))
+    if OLLAMA["vmSig"] == sig:
+        return OLLAMA["vmodels"]
+    vms = []
+    for m in OLLAMA["models"]:
+        try:
+            body = json.dumps({"model": m}).encode("utf-8")
+            req = urllib.request.Request(OLLAMA["base"] + "/api/show", data=body,
+                                         headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=3) as r:
+                j = json.loads(r.read().decode("utf-8", "ignore"))
+            if "vision" in [str(c).lower() for c in (j.get("capabilities") or [])]:
+                vms.append(m)
+        except Exception:
+            pass
+    OLLAMA["vmodels"], OLLAMA["vmSig"] = vms, sig
+    return vms
+
+
+def _ollama_vision_model():
+    """Vision model to use. Opt-in (unlike text): "" = use the BUNDLED vision model, "auto" =
+    first image-capable Ollama model, otherwise the exact model chosen. None -> bundled."""
+    v = OLLAMA["vmodel"]
+    if not v:
+        return None                       # empty = keep the bundled vision model (no surprise switch)
+    if v == "auto":
+        vms = _detect_vision_models()
+        return vms[0] if vms else None
+    return v
+
+
+def _ollama_vision_active():
+    return bool(OLLAMA["enabled"]) and _ollama_probe() and bool(_ollama_vision_model())
+
+
+def _ollama_vision_chat(prompt, image_paths, max_tokens, temperature, timeout, maxdim):
+    content = [{"type": "text", "text": prompt}]
+    for ip in image_paths:
+        content.append({"type": "image_url",
+                        "image_url": {"url": _img_data_url(ip, maxdim=maxdim)}})
+    body = json.dumps({"model": _ollama_vision_model(),
+                       "messages": [{"role": "user", "content": content}],
+                       "max_tokens": max_tokens, "temperature": temperature,
+                       "stream": False}).encode("utf-8")
+    req = urllib.request.Request(OLLAMA["base"] + "/v1/chat/completions", data=body,
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        j = json.loads(r.read().decode("utf-8", "ignore"))
+    return (j["choices"][0]["message"]["content"] or "").strip()
+
+
 def ollama_status():
     """Live Ollama backend status for the UI / health (forces a fresh probe)."""
     _ollama_probe(force=True)
     return {"enabled": bool(OLLAMA["enabled"]), "up": OLLAMA["up"],
             "base": OLLAMA["base"], "model": _ollama_model(),
             "configured": OLLAMA["model"], "models": OLLAMA["models"],
-            "active": _ollama_active(), "err": OLLAMA["err"]}
+            "active": _ollama_active(), "err": OLLAMA["err"],
+            # vision: which installed models can see images, the chosen one, and whether it's live
+            "visionModels": _detect_vision_models(), "visionModel": _ollama_vision_model(),
+            "visionConfigured": OLLAMA["vmodel"], "visionActive": _ollama_vision_active()}
 
 
 def _base_dir():
@@ -263,7 +325,7 @@ def find_vision():
 
 def vision_available():
     m, mm = find_vision()
-    return bool(m and mm and find_binary()[0])
+    return _ollama_vision_active() or bool(m and mm and find_binary()[0])
 
 
 def find_binary():
@@ -461,6 +523,8 @@ def _idle_watch():
 def prewarm_vision():
     """Start the vision server in the background so the first scout/recognize call
     isn't cold (cold-start is ~8s; a warm call is well under 1s). Non-blocking."""
+    if _ollama_vision_active():
+        return   # Ollama serves vision -> no bundled vision server to warm
     def _go():
         try:
             ensure_vision_running()
@@ -475,6 +539,8 @@ def prewarm_text():
     instead of a ~15s cold load that feels like 'the model isn't loaded'. No-op if a
     text server is already up. Non-blocking; safe to call often (e.g. on every voice
     key press, so the load overlaps your ~9s of recording + transcription)."""
+    if _ollama_active():
+        return   # Ollama serves text -> don't spin up the bundled server (leaves the GPU free)
     if _running() or _STATE.get("starting"):
         return
     def _go():
@@ -695,6 +761,15 @@ def chat_vision(prompt, image_path, max_tokens=480, timeout=180, maxdim=1024):
     time, so a small maxdim (e.g. 512) makes a warm call ~4x faster for quick
     in-game callouts where exact text legibility matters less."""
     _touch("vision")
+    # OLLAMA vision path (only when the user has an image-capable model pulled). Same
+    # image_url/base64 format Ollama accepts; fall through to the bundled vision server on failure.
+    if _ollama_vision_active():
+        try:
+            out = _ollama_vision_chat(prompt, [image_path], max_tokens, 0.2, timeout, maxdim)
+            if out:
+                return out
+        except Exception as e:
+            OLLAMA["err"] = "vision: " + str(e)[:100]
     if not ensure_vision_running():
         return None
     _idle_watch()
@@ -722,6 +797,13 @@ def chat_vision_multi(prompt, image_paths, max_tokens=560, timeout=240):
     """Analyze SEVERAL images at once (e.g. frames sampled across a clip) so the AI
     can review a sequence -- crosshair placement / positioning over time."""
     _touch("vision")
+    if _ollama_vision_active():
+        try:
+            out = _ollama_vision_chat(prompt, list(image_paths), max_tokens, 0.2, timeout, 768)
+            if out:
+                return out
+        except Exception as e:
+            OLLAMA["err"] = "vision: " + str(e)[:100]
     if not ensure_vision_running():
         return None
     _idle_watch()
