@@ -153,10 +153,36 @@ def test_subprocess_decode_safe():
     check("proc.run(text=True) injects errors=replace", seen.get("errors") == "replace")
 
 
+# --- 12) Ollama coach backend: model auto-pick + active gating (no network) -------------------
+def test_ollama_backend():
+    import fragroute_llm as L
+    _orig = L._ollama_probe
+    L._ollama_probe = lambda force=False: L.OLLAMA["up"]   # avoid a real network probe in the test
+    try:
+        L.configure_ollama(enabled=True, model="")
+        L.OLLAMA["up"] = True
+        L.OLLAMA["models"] = ["nomic-embed-text:latest", "qwen2.5:14b"]
+        check("ollama: auto-pick skips the embedding model", L._ollama_model() == "qwen2.5:14b")
+        L.configure_ollama(model="qwen2.5:32b")
+        check("ollama: an explicit model is honored", L._ollama_model() == "qwen2.5:32b")
+        L.configure_ollama(enabled=False)
+        check("ollama: disabled -> not active (falls back to bundled)", L._ollama_active() is False)
+        L.configure_ollama(enabled=True)
+        check("ollama: enabled + up + model -> active", L._ollama_active() is True)
+        L.OLLAMA["models"] = []
+        L.configure_ollama(model="")
+        check("ollama: up but no usable model -> not active", L._ollama_active() is False)
+    finally:
+        L._ollama_probe = _orig
+        L.OLLAMA["up"] = False
+        L.configure_ollama(enabled=True, model="")
+
+
 def main():
     for t in (test_atomic_write, test_host_allowlist, test_prompt_injection_clause,
               test_live_mode_gate, test_proc_job, test_regionlock_sweep, test_capture_modules,
-              test_license_revoke, test_public_ip, test_ver_tuple, test_subprocess_decode_safe):
+              test_license_revoke, test_public_ip, test_ver_tuple, test_subprocess_decode_safe,
+              test_ollama_backend):
         print("[%s]" % t.__name__)
         try:
             t()

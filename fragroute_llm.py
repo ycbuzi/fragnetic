@@ -26,7 +26,7 @@ from pathlib import Path
 
 import fragroute_proc as _proc   # orphan-proof helpers (shared Windows Job Object)
 
-APP_LLM_BUILD = "llm-2"          # llm-2: job-adopt llama-server so it can't orphan on the GPU
+APP_LLM_BUILD = "llm-3"          # llm-3: optional Ollama backend (use the user's models, auto-fallback)
 
 LLM_DIR = None                  # set by fragroute.main(); else <module|exe>/llm
 _LOCK = threading.Lock()
@@ -35,6 +35,83 @@ _STATE = {"proc": None, "port": None, "kind": None, "ready": False, "model": Non
 
 CTX_TOKENS = 4096
 GEN_TOKENS = 480
+
+# ---------------------------------------------------------------------------
+#  Optional OLLAMA backend. If the user runs Ollama (localhost:11434), the coach
+#  can use THEIR models instead of our bundled llama-server: no 2GB download,
+#  their choice of model (incl. bigger ones we'd never ship), and Ollama manages
+#  the GPU. Ollama exposes an OpenAI-compatible /v1/chat/completions, so chat()
+#  barely changes. Default "auto": use Ollama when it's up with a chat model,
+#  else fall back to the bundled server -- so a buyer WITHOUT Ollama is unaffected.
+# ---------------------------------------------------------------------------
+OLLAMA = {"enabled": True, "base": "http://127.0.0.1:11434", "model": None,
+          "up": False, "models": [], "checkedTs": 0.0, "err": None}
+_OLLAMA_TTL = 6.0            # cache the up/models probe this long (cheap, non-blocking)
+
+
+def configure_ollama(enabled=None, base=None, model=None):
+    """Set the Ollama backend from the engine/settings. enabled=True means 'use Ollama when
+    it's actually up + has a chat model' (auto-fallback to bundled otherwise)."""
+    if enabled is not None:
+        OLLAMA["enabled"] = bool(enabled)
+    if base:
+        OLLAMA["base"] = str(base).rstrip("/")
+    if model is not None:
+        OLLAMA["model"] = (str(model).strip() or None)
+    OLLAMA["checkedTs"] = 0.0     # force a fresh probe on next use
+
+
+def _ollama_probe(force=False):
+    """Cheap cached check: is Ollama up, and what models does it have. Never raises."""
+    now = time.time()
+    if not force and (now - OLLAMA["checkedTs"]) < _OLLAMA_TTL:
+        return OLLAMA["up"]
+    OLLAMA["checkedTs"] = now
+    try:
+        req = urllib.request.Request(OLLAMA["base"] + "/api/tags")
+        with urllib.request.urlopen(req, timeout=2) as r:
+            j = json.loads(r.read().decode("utf-8", "ignore"))
+        OLLAMA["models"] = [m.get("name") for m in (j.get("models") or []) if m.get("name")]
+        OLLAMA["up"], OLLAMA["err"] = True, None
+    except Exception as e:
+        OLLAMA["up"], OLLAMA["models"], OLLAMA["err"] = False, [], str(e)[:80]
+    return OLLAMA["up"]
+
+
+def _ollama_model():
+    """Which Ollama model to use: the configured one, else auto-pick the first CHAT model
+    (skip embedding models like nomic-embed-text -- they can't chat)."""
+    if OLLAMA["model"]:
+        return OLLAMA["model"]
+    for m in OLLAMA["models"]:
+        if "embed" not in (m or "").lower():
+            return m
+    return OLLAMA["models"][0] if OLLAMA["models"] else None
+
+
+def _ollama_active():
+    """True when chat() should route to Ollama right now (enabled + up + a usable model)."""
+    return bool(OLLAMA["enabled"]) and _ollama_probe() and bool(_ollama_model())
+
+
+def _ollama_chat(messages, max_tokens, temperature, timeout):
+    body = json.dumps({"model": _ollama_model(), "messages": messages,
+                       "max_tokens": max_tokens, "temperature": temperature,
+                       "stream": False}).encode("utf-8")
+    req = urllib.request.Request(OLLAMA["base"] + "/v1/chat/completions", data=body,
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        j = json.loads(r.read().decode("utf-8", "ignore"))
+    return (j["choices"][0]["message"]["content"] or "").strip()
+
+
+def ollama_status():
+    """Live Ollama backend status for the UI / health (forces a fresh probe)."""
+    _ollama_probe(force=True)
+    return {"enabled": bool(OLLAMA["enabled"]), "up": OLLAMA["up"],
+            "base": OLLAMA["base"], "model": _ollama_model(),
+            "configured": OLLAMA["model"], "models": OLLAMA["models"],
+            "active": _ollama_active(), "err": OLLAMA["err"]}
 
 
 def _base_dir():
@@ -204,7 +281,9 @@ def find_binary():
 
 
 def available():
-    return bool(find_model()) and bool(find_binary()[0])
+    # The coach is usable if EITHER the user's Ollama backend is live, OR we have a bundled
+    # model + binary. So a user who only has Ollama (no downloaded model) still gets a coach.
+    return _ollama_active() or (bool(find_model()) and bool(find_binary()[0]))
 
 
 def _free_port(exclude=()):
@@ -418,8 +497,19 @@ def release_for_game():
 
 
 def chat(messages, max_tokens=GEN_TOKENS, temperature=0.3, timeout=120):
-    """OpenAI-style chat completion against the local server. Returns text or None."""
+    """OpenAI-style chat completion. Prefers the user's OLLAMA backend when enabled + up,
+    else the bundled llama-server. Returns text or None."""
     _touch("text")
+    # OLLAMA path: it runs its own server, so there's nothing for us to start/stop; the
+    # endpoint is OpenAI-compatible. On any failure, fall through to the bundled server so
+    # a transient Ollama hiccup never leaves the coach dead.
+    if _ollama_active():
+        try:
+            out = _ollama_chat(messages, max_tokens, temperature, timeout)
+            if out:
+                return out
+        except Exception as e:
+            OLLAMA["err"] = str(e)[:120]
     if not ensure_running():
         return None
     _idle_watch()
@@ -441,7 +531,10 @@ def status():
     m = find_models()
     return {
         "available": available(),
-        "ready": _running(),
+        "backend": "ollama" if _ollama_active() else "bundled",
+        "ollama": {"enabled": bool(OLLAMA["enabled"]), "up": OLLAMA["up"],
+                   "model": _ollama_model(), "models": OLLAMA["models"]},
+        "ready": _ollama_active() or _running(),
         "starting": bool(_STATE.get("starting")),
         "kind": _STATE.get("kind"),
         "model": _STATE.get("model") or (Path(find_model()).name if find_model() else None),

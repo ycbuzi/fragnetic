@@ -1541,6 +1541,11 @@
       <div class="right"><span class="ai-badge" id="aiBadge">connecting…</span><button class="mini-btn" id="aiConverse" title="Hands-free voice-to-voice conversation -- just talk">🎙️ Talk: off</button><button class="mini-btn" id="aiSpeak" title="Read the coach's answers aloud">🔊 Voice: off</button><button class="mini-btn" id="aiClear">Clear</button></div>
     </div>
     <div class="ai-note">Ask anything about FragPunk — <b>weapon firing</b>, <b>crosshair / aim</b>, <b>game modes</b>, <b>economy</b>, <b>shard cards</b>, strategy, or any free-form question. A <b>local FragPunk AI</b> answers, grounded in what it's learned; it also pulls your <b>live data</b> (best region &amp; ping, queue stats, match state) and can run commands on request. All on your PC — no account, nothing leaves your machine.</div>
+    <div class="ai-note" id="aiBrainRow" style="display:none">🧠 <b>Coach brain:</b>
+      <select id="aiBrainSel" style="margin-left:6px;padding:2px 6px;border-radius:6px" title="Which model answers. Ollama models run locally via your Ollama install — no download, your choice of model.">
+        <option value="">Bundled (built-in)</option>
+      </select>
+      <span id="aiBrainHint" style="margin-left:8px;opacity:.75"></span></div>
     <div class="ai-persona" id="aiPersona">
       <span class="ap-label">Coach vibe</span>
       <span id="apStyle" class="ap-style">adapting to how you chat…</span>
@@ -5698,11 +5703,33 @@ async function aiLlmStatus(){
   const b=document.getElementById('aiBadge'); if(!b)return;
   try{
     const j=await (await fetch(API+'/api/ai/llm/status')).json();
-    if(j.ready) b.textContent='local AI · '+(j.kind||'on');
+    const oll=(j.ollama||{});
+    if(j.ready) b.textContent='local AI · '+(j.backend==='ollama'?('ollama '+(oll.model||'')):(j.kind||'on'));
     else if(j.starting) b.textContent='AI loading…';
     else if(j.available) b.textContent='local AI ready';
     else b.textContent='AI offline (no model)';
   }catch(e){ b.textContent='AI offline (no model)'; }
+  _aiRenderBrain();
+}
+async function _aiRenderBrain(){
+  const row=document.getElementById('aiBrainRow'), sel=document.getElementById('aiBrainSel'), hint=document.getElementById('aiBrainHint');
+  if(!row||!sel) return;
+  let o; try{ o=await (await fetch(API+'/api/ai/ollama')).json(); }catch(e){ row.style.display='none'; return; }
+  const models=(o.models||[]).filter(m=>!/embed/i.test(m));   // embed models can't chat
+  if(!o.up && !models.length){ row.style.display='none'; return; }   // no Ollama -> bundled only, hide picker
+  row.style.display='';
+  const want = !o.enabled ? '' : (o.configured || 'auto');
+  const opts=['<option value="">Bundled (built-in)</option>','<option value="auto">Ollama · auto-pick</option>']
+    .concat(models.map(m=>'<option value="'+m+'">Ollama · '+m+'</option>'));
+  const sig=opts.join('|')+'::'+want;
+  if(sel._sig!==sig){ sel.innerHTML=opts.join(''); sel.value=want; sel._sig=sig; }   // only rebuild on change (don't fight the user mid-select)
+  if(hint)hint.textContent = o.up ? (o.active?('● '+(o.model||'')):'○ using bundled') : '○ Ollama offline';
+}
+function _aiBrainPick(v){
+  if(v===''){ aifSaveOpt('coachUseOllama',false); }
+  else if(v==='auto'){ aifSaveOpt('coachUseOllama',true); aifSaveOpt('ollamaModel',''); }
+  else { aifSaveOpt('coachUseOllama',true); aifSaveOpt('ollamaModel',v); }
+  setTimeout(aiLlmStatus,250);
 }
 (function _aiInit(){
   const send=document.getElementById('aiSend'), inp=document.getElementById('aiInput'),
@@ -5714,6 +5741,8 @@ async function aiLlmStatus(){
   if(spk){ spk.textContent='🔊 Voice: '+(_aiVoice?'on':'off'); spk.addEventListener('click',_aiToggleVoice); }
   const cnv=document.getElementById('aiConverse');
   if(cnv)cnv.addEventListener('click',_aiToggleConverse);
+  const brain=document.getElementById('aiBrainSel');
+  if(brain)brain.addEventListener('change',()=>_aiBrainPick(brain.value));
   _aiConverseSync();
   _aiRenderChips(); _aiEmpty(); aiLlmStatus();
   setInterval(()=>{ if(_coachOnTab()&&!document.hidden)aiLlmStatus(); }, 5000);
