@@ -1783,6 +1783,10 @@
         <div class="set-ctl"><span class="toggle" data-setting="confirmTunnelSwitch"></span></div>
       </div>
       <div class="set-row">
+        <div class="set-info"><div class="set-label">FragPunk-only VPN (split tunnel)</div><div class="set-desc">Route <b>only FragPunk's servers</b> through the VPN — your browser, Discord, downloads and everything else stay on your normal connection (no slowdown, no region change). Takes effect on the next connect.</div></div>
+        <div class="set-ctl"><span class="toggle" data-setting="fragpunkOnlyVpn"></span></div>
+      </div>
+      <div class="set-row">
         <div class="set-info"><div class="set-label">Auto-refresh pings</div><div class="set-desc">Re-measure latency on a timer.</div></div>
         <div class="set-ctl"><select class="set-select" data-setting="pingRefreshSeconds" data-type="int">
           <option value="0">Manual only</option><option value="15">Every 15s</option><option value="30">Every 30s</option><option value="60">Every 60s</option>
@@ -2097,7 +2101,7 @@ let timerState = { regionId: null, startTs: null, intervalId: null };
 // but we also mirror to localStorage so appearance (theme/compact/lite) applies
 // instantly at load with no flash, then reconcile with the server in init().
 const SETTINGS_DEFAULTS = {
-  autoConnectOnLaunch:false, autoConnectRegion:'', confirmTunnelSwitch:false,
+  autoConnectOnLaunch:false, autoConnectRegion:'', confirmTunnelSwitch:false, fragpunkOnlyVpn:false,
   pingRefreshSeconds:0, preferredRegion:'', maxPing:120,
   autoCapture:true, gamePollSeconds:6, pauseDetectionWhenIdle:false, suggestBetterRoute:true,
   newsAutoRefreshSeconds:0, newsSources:'both', newsOpenIn:'inapp', newsCount:12,

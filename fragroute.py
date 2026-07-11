@@ -1370,7 +1370,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "20.15"   # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "20.16"   # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 # Lemon Squeezy checkout link (the app's Buy/Unlock buttons open this in the system
 # browser). Get it from your LS dashboard -> Products -> "Share" / checkout link.
@@ -2482,13 +2482,23 @@ def _connect_entry(region_id, cfg):
 
     kind, wg = find_wireguard()
     name = cfg["name"]
-    cmd = _wg_command("up", cfg, name, kind, wg)
+    # FRAGPUNK-ONLY (split tunnel): install a variant .conf whose AllowedIPs cover just the
+    # game's servers, so only FragPunk routes through the VPN. Falls back to the full tunnel if
+    # the split conf can't be built (e.g. no server ranges learned yet).
+    up_cfg = cfg
+    split = False
+    if get_setting("fragpunkOnlyVpn", False):
+        _sp = _fragonly_conf(cfg)
+        if _sp:
+            up_cfg = dict(cfg); up_cfg["path"] = _sp; split = True
+    cmd = _wg_command("up", up_cfg, name, kind, wg)
 
     if STATE["dry_run"]:
         STATE["active_tunnel"] = name
         STATE["active_region"] = region_id
-        return {"ok": True, "dryRun": True, "command": " ".join(cmd),
-                "message": f"[dry-run] would connect {name} ({region_id})",
+        return {"ok": True, "dryRun": True, "command": " ".join(cmd), "fragpunkOnly": split,
+                "message": f"[dry-run] would connect {name} ({region_id})"
+                           + (" [FragPunk-only]" if split else ""),
                 "active": name, "activeRegion": region_id, "activeConfig": name}
     if not kind:
         return {"ok": False, "message": "WireGuard not installed / not found on PATH.",
@@ -2510,8 +2520,8 @@ def _connect_entry(region_id, cfg):
             _arm_auto_revert(prev_tunnel)
         except Exception:
             pass
-    return {"ok": ok, "message": out or f"connected {name}",
-            "command": " ".join(cmd), "active": STATE["active_tunnel"],
+    return {"ok": ok, "message": (out or f"connected {name}") + (" [FragPunk-only]" if (ok and split) else ""),
+            "command": " ".join(cmd), "active": STATE["active_tunnel"], "fragpunkOnly": (ok and split),
             "activeRegion": STATE["active_region"], "activeConfig": STATE["active_tunnel"]}
 
 
@@ -3877,6 +3887,66 @@ def region_block_map(target_region):
     return block
 
 
+def fragpunk_route_cidrs():
+    """ALL FragPunk destination CIDRs -- every region's curated seed ranges + the /24s we've
+    LEARNED from real matches + the live lobby/backend infra. This is the AllowedIPs set for a
+    FRAGPUNK-ONLY (split) tunnel: only traffic to these goes through the VPN, so the region
+    switch reaches the game while your browser / Discord / downloads stay on the normal line."""
+    cidrs = set()
+    for lst in _REGION_SEED_CIDRS.values():
+        cidrs.update(lst)
+    regions = (load_servers().get("regions", {}) or {})
+    for bucket in regions.values():
+        for ip in (bucket or {}).keys():
+            try:
+                cidrs.add(_ip_to_24(ip))
+            except Exception:
+                pass
+    # the lobby + backends must tunnel too, or matchmaking would still see your real region
+    try:
+        for ip in (live_game_infra_ips() or []):
+            try:
+                cidrs.add(_ip_to_24(ip))
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return sorted(c for c in cidrs if c)
+
+
+def _fragonly_conf(cfg):
+    """Write a FRAGPUNK-ONLY (split-tunnel) variant of cfg's WireGuard .conf and return its path.
+    AllowedIPs is narrowed from the full-tunnel 0.0.0.0/0 to just FragPunk's server ranges (so
+    only the game routes through the VPN), and the DNS line is dropped so non-FragPunk name
+    resolution is untouched. Same filename stem => same tunnel service name (the app's tracking
+    is unchanged). Returns None to fall back to the FULL tunnel if anything's off (never risk a
+    broken/leaky tunnel)."""
+    try:
+        src = Path(cfg["path"])
+        cidrs = fragpunk_route_cidrs()
+        if not cidrs or not src.exists():
+            return None                       # no known ranges yet -> don't risk a leaky split
+        allowed = "AllowedIPs = " + ", ".join(cidrs)
+        out, had_allowed = [], False
+        for line in src.read_text(encoding="utf-8", errors="replace").splitlines():
+            low = line.strip().lower()
+            if low.startswith("allowedips"):
+                out.append(allowed); had_allowed = True     # replace the full-tunnel route
+            elif low.startswith("dns"):
+                continue                                    # drop DNS -> system resolver untouched
+            else:
+                out.append(line)
+        if not had_allowed:
+            out.append(allowed)               # malformed peer with no AllowedIPs -> add it
+        dst_dir = Path(tempfile.gettempdir()) / "fragroute_wg"
+        dst_dir.mkdir(parents=True, exist_ok=True)
+        dst = dst_dir / src.name              # SAME stem -> tunnel name unchanged
+        dst.write_text("\n".join(out) + "\n", encoding="utf-8")
+        return str(dst)
+    except Exception:
+        return None
+
+
 def _region_real_ping(region_id):
     """Best (lowest) recent real game-server ping for a region, or None.
     Only trusts pings measured in the last 30 min so a stale value from a
@@ -4257,6 +4327,7 @@ DEFAULT_SETTINGS = {
     "autoConnectOnLaunch": False,   # bring up a tunnel when Fragpunk launches
     "autoConnectRegion": "",        # "" = best overall ping, else a region id
     "confirmTunnelSwitch": False,   # ask before switching an active tunnel
+    "fragpunkOnlyVpn": False,       # SPLIT TUNNEL: route ONLY FragPunk's servers through the VPN (browser/Discord/etc. stay on your normal connection)
     "pingRefreshSeconds": 0,        # 0 = manual only (UI honors)
     "preferredRegion": "",          # bias the recommendation toward this region
     "maxPing": 120,                 # ping cap (mirrors the inline slider)

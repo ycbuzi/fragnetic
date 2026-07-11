@@ -202,11 +202,34 @@ def test_semantic_rag():
     L._FACT_EMB.clear()
 
 
+# --- 14) FragPunk-only split tunnel: .conf rewrite (no network) -------------------------------
+def test_split_tunnel_conf():
+    import fragroute as F
+    import tempfile
+    from pathlib import Path
+    j = Path(tempfile.mkdtemp()) / "servers.json"
+    j.write_text('{"regions": {}}')     # empty learned set -> seed CIDRs still apply
+    F.SERVERS_PATH = j
+    cidrs = F.fragpunk_route_cidrs()
+    check("split: fragpunk_route_cidrs returns seed ranges", len(cidrs) >= 3)
+    check("split: never contains the default route", "0.0.0.0/0" not in cidrs)
+    conf = Path(tempfile.mkdtemp()) / "wg-DE-1.conf"
+    conf.write_text("[Interface]\nPrivateKey = K\nAddress = 10.2.0.2/32\nDNS = 10.2.0.1\n\n"
+                    "[Peer]\nPublicKey = P\nEndpoint = 9.9.9.9:51820\nAllowedIPs = 0.0.0.0/0, ::/0\n")
+    sp = F._fragonly_conf({"path": str(conf), "name": "wg-DE-1"})
+    txt = Path(sp).read_text() if sp else ""
+    check("split: written with the SAME stem (tunnel name unchanged)", bool(sp) and Path(sp).name == "wg-DE-1.conf")
+    check("split: full-tunnel 0.0.0.0/0 removed", bool(txt) and "0.0.0.0/0" not in txt)
+    check("split: DNS line dropped (system resolver untouched)", bool(txt) and "DNS" not in txt)
+    check("split: VPN endpoint preserved", "9.9.9.9" in txt)
+    check("split: AllowedIPs narrowed to FragPunk ranges", "AllowedIPs = " in txt and ("8.221" in txt or "8.211" in txt))
+
+
 def main():
     for t in (test_atomic_write, test_host_allowlist, test_prompt_injection_clause,
               test_live_mode_gate, test_proc_job, test_regionlock_sweep, test_capture_modules,
               test_license_revoke, test_public_ip, test_ver_tuple, test_subprocess_decode_safe,
-              test_ollama_backend, test_semantic_rag):
+              test_ollama_backend, test_semantic_rag, test_split_tunnel_conf):
         print("[%s]" % t.__name__)
         try:
             t()
