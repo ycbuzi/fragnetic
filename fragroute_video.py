@@ -35,8 +35,34 @@ for _f in (r"C:\Windows\Fonts\arialbd.ttf", r"C:\Windows\Fonts\arial.ttf", r"C:\
         break
 
 
+def _resolve_ffmpeg():
+    """Return a usable ffmpeg path, self-healing the module-level FFMPEG. The engine sets FFMPEG
+    once at startup from the recorder's find_ffmpeg(), but that first lookup can miss (a cache
+    race seen live: capture ends up with dist/ffmpeg.exe while this module was left None) -- and
+    then the whole Video tab / auto-highlights falsely report 'needs ffmpeg' even though
+    ffmpeg.exe sits right next to Fragnetic.exe. So resolve it ourselves, the SAME way the
+    recorder does, at use time."""
+    global FFMPEG
+    if FFMPEG and os.path.exists(FFMPEG):
+        return FFMPEG
+    import sys as _sys
+    base = Path(_sys.executable).parent if getattr(_sys, "frozen", False) else Path(__file__).parent
+    for c in (base / "ffmpeg.exe", base / "dist" / "ffmpeg.exe", base.parent / "ffmpeg.exe"):
+        try:
+            if c.exists():
+                FFMPEG = str(c)
+                return FFMPEG
+        except Exception:
+            pass
+    import shutil as _sh
+    w = _sh.which("ffmpeg")
+    if w:
+        FFMPEG = w
+    return FFMPEG
+
+
 def available():
-    return bool(FFMPEG and os.path.exists(FFMPEG))
+    return bool(_resolve_ffmpeg())
 
 
 def _out_dir():
@@ -47,10 +73,13 @@ def _out_dir():
 
 def _ff(args, timeout=600):
     """Run ffmpeg; return (ok, tail-of-stderr). Never raises."""
+    ff = _resolve_ffmpeg()
+    if not ff:
+        return False, "ffmpeg not found"
     try:
         # _proc.run job-adopts the ffmpeg child so a long transcode can't orphan if
         # we're hard-killed mid-encode (a blocking run alone would leave it running).
-        p = _proc.run([FFMPEG, "-hide_banner", "-loglevel", "error", "-y"] + args,
+        p = _proc.run([ff, "-hide_banner", "-loglevel", "error", "-y"] + args,
                       capture_output=True, text=True, errors="replace",
                       timeout=timeout, **_NOWIN)
         return (p.returncode == 0), (p.stderr or p.stdout or "")[-300:]
@@ -67,11 +96,12 @@ def _vcodec():
     else mpeg4. Delegates to the hardware probe so AMD/Intel customers also get
     hardware encoding. NOTE: the LGPL ffmpeg has NO libx264 (x264 is GPL)."""
     if _ENC["v"] is None:
+        ff = _resolve_ffmpeg() or FFMPEG
         # preferred: the shared hardware-aware picker (knows AMF/QSV too)
         try:
             import fragroute_hardware as _HW
             if not _HW.FFMPEG:
-                _HW.FFMPEG = FFMPEG
+                _HW.FFMPEG = ff
             args, _label, _hw = _HW.best_video_encoder()
             if args:
                 _ENC["v"] = args
@@ -81,7 +111,7 @@ def _vcodec():
         # fallback: probe locally (NVENC -> libopenh264 -> mpeg4)
         enc = ""
         try:
-            p = subprocess.run([FFMPEG, "-hide_banner", "-encoders"],
+            p = subprocess.run([ff, "-hide_banner", "-encoders"],
                                capture_output=True, text=True, errors="replace",
                                timeout=30, **_NOWIN)
             enc = p.stdout or ""
@@ -145,7 +175,7 @@ def _has_audio(src):
     """True if the file has an audio stream (parse ffmpeg's probe output). The app's
     own ddagrab clips are video-only; OBS/external clips usually have game audio."""
     try:
-        p = subprocess.run([FFMPEG, "-hide_banner", "-i", src],
+        p = subprocess.run([_resolve_ffmpeg() or FFMPEG, "-hide_banner", "-i", src],
                            capture_output=True, text=True, errors="replace",
                            timeout=30, **_NOWIN)
         return "Audio:" in (p.stderr or "")

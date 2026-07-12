@@ -101,7 +101,10 @@ def find_ffmpeg(refresh=False):
     if not found:
         found = shutil.which("ffmpeg")
     _STATE["ffmpeg"] = found
-    _STATE["ffmpeg_checked"] = True
+    # Only CACHE a hit -- caching a miss poisoned every later no-refresh caller (the engine set
+    # fragroute_video.FFMPEG=None from an early miss while the recorder later re-found it), so a
+    # miss now re-searches next call.
+    _STATE["ffmpeg_checked"] = bool(found)
     return found
 
 
