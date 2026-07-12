@@ -1,6 +1,6 @@
 ' ============================================================
-'  FRAGROUTE -- no-build launcher (runs the app with NO console window).
-'  Double-click this file to start FRAGROUTE without building the .exe.
+'  Fragnetic -- no-build launcher (runs the app from source, NO console window).
+'  Double-click this file to start Fragnetic without building the .exe.
 '  Requires Python 3 installed and on PATH.
 '  Tip: right-click -> Send to -> Desktop (create shortcut) for easy access.
 ' ============================================================

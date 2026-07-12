@@ -17,9 +17,9 @@ window that sits next to the game.
 
 | Feature | What you get |
 |---|---|
-| **AI Coach** | A private, on-device coach — chat **and** voice. Ask about weapons, economy, lancers, maps, or your own play. Runs locally; nothing is uploaded. |
-| **Recording & review** | Automatic gameplay capture (rolling buffer + full-match), with AI review of your clips. Hardware-accelerated on NVIDIA, AMD, and Intel GPUs. |
-| **Region intelligence** | Measures your **true ping to every region** and shows which server region you're actually playing on — so you can pick the best region in-game with real numbers, not guesses. |
+| **AI Coach** | A private, on-device coach — **chat, voice, and vision** (it can read your maps/scoreboards). Ask about weapons, economy, lancers, maps, or your own play. Runs on bundled local models, or point it at **your own [Ollama](https://ollama.com) models** for a bigger brain. Grounded in FragPunk knowledge; nothing is uploaded. |
+| **Recording & review** | Automatic gameplay capture (rolling buffer + full-match), **auto-highlights** (it finds your action moments and stitches a montage), and AI review of your clips. Hardware-accelerated on NVIDIA, AMD, and Intel GPUs. |
+| **Region intelligence** | Measures your **true ping to every region** and shows which server region you're actually playing on — so you can pick the best region in-game with real numbers, not guesses. Optional **VPN region routing** with a **FragPunk-only split tunnel** (only the game rides the VPN; your browser/Discord stay full-speed) and a no-VPN **region lock**. |
 | **AI image tools** | Local image generation (Pro). |
 | **Locker & more** | Auto-cropped skin gallery, per-lancer profiles, health diagnostics. |
 
@@ -49,7 +49,14 @@ servers and tells you which one actually gives you the best latency, and it read
 region you're truly playing on from the live match.
 
 If you want to *improve* your ping to a **far** region, you can drop in your own WireGuard
-`.conf` (from any provider) and Fragnetic will use it — that's optional, for power users.
+`.conf` (from any provider) and Fragnetic will route through it — optional, for power users.
+Two things make this nicer than a normal VPN:
+
+- **FragPunk-only split tunnel:** route *only* the game through the VPN, so your browser,
+  Discord, and downloads stay on your normal connection at full speed.
+- **No-VPN region lock:** or skip the VPN entirely and nudge matchmaking by firewall-blocking
+  the regions you don't want (whitelisting the game's lobby/anti-cheat so nothing breaks).
+
 There's no built-in VPN requirement and no subscription tied to the app.
 
 ---
