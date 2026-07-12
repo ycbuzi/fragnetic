@@ -229,11 +229,23 @@ def test_split_tunnel_conf():
     check("split: AllowedIPs narrowed to FragPunk ranges", "AllowedIPs = " in txt and ("8.221" in txt or "8.211" in txt))
 
 
+# --- 15) QoL: vpn_verify + connect_best_region graceful paths (no network) --------------------
+def test_qol():
+    import fragroute as F
+    F.STATE["active_tunnel"] = None
+    v = F.vpn_verify()
+    check("qol: vpn_verify with no tunnel -> verdict 'off'", v.get("verdict") == "off" and v.get("connected") is False)
+    F.STATE["configs"] = {}
+    b = F.connect_best_region()
+    check("qol: connect_best_region with no configs -> graceful ok=False", b.get("ok") is False and "region" in b.get("message", "").lower())
+    check("qol: startWithWindows default present", "startWithWindows" in F.DEFAULT_SETTINGS)
+
+
 def main():
     for t in (test_atomic_write, test_host_allowlist, test_prompt_injection_clause,
               test_live_mode_gate, test_proc_job, test_regionlock_sweep, test_capture_modules,
               test_license_revoke, test_public_ip, test_ver_tuple, test_subprocess_decode_safe,
-              test_ollama_backend, test_semantic_rag, test_split_tunnel_conf):
+              test_ollama_backend, test_semantic_rag, test_split_tunnel_conf, test_qol):
         print("[%s]" % t.__name__)
         try:
             t()

@@ -1172,7 +1172,8 @@
       <div class="status-detail" id="statusDetail">No tunnel active · direct connection</div>
     </div>
     <div class="status-right" id="statusRight">
-      <button class="mini-btn" id="verifyBtn">Verify Exit IP</button>
+      <button class="mini-btn" id="connectBestBtn" title="Connect the lowest-ping region in one click">⚡ Connect Best</button>
+      <button class="mini-btn" id="verifyBtn" title="Check the real exit IP, whether the tunnel is actually alive, and split-tunnel status">Verify VPN</button>
       <button class="mini-btn danger" id="disconnectBtn">Disconnect</button>
     </div>
   </div>
@@ -1771,6 +1772,10 @@
     <div class="set-group" data-sgroup="routing">
       <div class="set-group-title">Routing &amp; VPN</div>
       <div class="set-row">
+        <div class="set-info"><div class="set-label">Start with Windows</div><div class="set-desc">Launch Fragnetic automatically at login (runs a Scheduled Task, so no UAC prompt each boot).</div></div>
+        <div class="set-ctl"><span class="toggle" data-setting="startWithWindows"></span></div>
+      </div>
+      <div class="set-row">
         <div class="set-info"><div class="set-label">Auto-connect on launch</div><div class="set-desc">Bring up a tunnel automatically when Fragpunk starts.</div></div>
         <div class="set-ctl"><span class="toggle" data-setting="autoConnectOnLaunch"></span></div>
       </div>
@@ -2101,7 +2106,7 @@ let timerState = { regionId: null, startTs: null, intervalId: null };
 // but we also mirror to localStorage so appearance (theme/compact/lite) applies
 // instantly at load with no flash, then reconcile with the server in init().
 const SETTINGS_DEFAULTS = {
-  autoConnectOnLaunch:false, autoConnectRegion:'', confirmTunnelSwitch:false, fragpunkOnlyVpn:false,
+  autoConnectOnLaunch:false, autoConnectRegion:'', confirmTunnelSwitch:false, fragpunkOnlyVpn:false, startWithWindows:false,
   pingRefreshSeconds:0, preferredRegion:'', maxPing:120,
   autoCapture:true, gamePollSeconds:6, pauseDetectionWhenIdle:false, suggestBetterRoute:true,
   newsAutoRefreshSeconds:0, newsSources:'both', newsOpenIn:'inapp', newsCount:12,
@@ -2691,11 +2696,27 @@ async function refreshStatus(){
   }catch(e){}
 }
 async function verifyIp(){
-  toast('Looking up exit IP…');
-  try{const res=await fetch(API+'/api/status/full');const j=await res.json();
-    STATUS.publicIp=j.publicIp;STATUS.defaultRoute=j.defaultRoute;renderStatus();
-    toast(j.publicIp?('Exit IP: '+j.publicIp):'Could not read exit IP', j.publicIp?'ok':'err');
-  }catch(e){toast('IP lookup failed','err');}
+  const b=document.getElementById('verifyBtn'); if(b){b.disabled=true;b.textContent='Verifying…';}
+  toast('Verifying VPN…');
+  try{
+    const j=await (await fetch(API+'/api/vpn/verify')).json();
+    if(j.exitIp)STATUS.publicIp=j.exitIp;
+    renderStatus();
+    const tone = j.verdict==='dead' ? 'err' : (j.connected ? 'ok' : 'warn');
+    toast(j.message||'Verified', tone);   // message is a full human summary (alive/split/exit)
+  }catch(e){ toast('Verify failed','err'); }
+  finally{ if(b){b.disabled=false;b.textContent='Verify VPN';} }
+}
+async function connectBest(){
+  const b=document.getElementById('connectBestBtn'); if(b){b.disabled=true;b.textContent='Connecting…';}
+  toast('Connecting best region…');
+  try{
+    const j=await (await fetch(API+'/api/connect/best',{method:'POST'})).json();
+    if(j.ok){ STATUS.activeRegion=j.activeRegion; STATUS.activeTunnel=j.active; STATUS.publicIp=null;
+      renderStatus(); if(typeof updateLive==='function')updateLive(); toast(j.message||'Connected','ok'); }
+    else toast(j.message||'Connect failed','warn');
+  }catch(e){ toast('Connect failed','err'); }
+  finally{ if(b){b.disabled=false;b.textContent='⚡ Connect Best';} }
 }
 
 // ====================== BOOT ======================
@@ -4280,6 +4301,7 @@ document.getElementById('matchBtn').addEventListener('click',()=>stopTimer('matc
 document.getElementById('cancelBtn').addEventListener('click',()=>stopTimer('cancelled'));
 document.getElementById('disconnectBtn').addEventListener('click',doDisconnect);
 document.getElementById('verifyBtn').addEventListener('click',verifyIp);
+(function(){const cb=document.getElementById('connectBestBtn');if(cb)cb.addEventListener('click',connectBest);})();
 document.getElementById('pingBtn').addEventListener('click',refreshPings);
 document.getElementById('recConnectBtn').addEventListener('click',e=>{const rid=e.currentTarget.dataset.recTarget;if(rid)doConnectRegionBest(rid);});
 document.getElementById('clearBtn').addEventListener('click',async()=>{if(!LOG.length)return;if(await uiConfirm('Clear all queue history?',{title:'Clear history',okText:'Clear',danger:true})){await fetch(API+'/api/log/clear',{method:'POST'});LOG=[];renderLog();updateLive();}});
@@ -4349,6 +4371,7 @@ function onSettingChanged(key,value){
   else if(key==='clock24h'){updateClock();renderLog();}
   else if(key==='pingRefreshSeconds')setupPingAutoRefresh();
   else if(key==='newsAutoRefreshSeconds')setupNewsAutoRefresh();
+  else if(key==='startWithWindows'){ fetch(API+'/api/startup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:!!value})}).then(r=>r.json()).then(j=>toast(j.message||'',j.ok?'ok':'warn')).catch(()=>{}); }
   else if(key==='gamePollSeconds')setupAutodetectPoll();
   else if(key==='newsSources'||key==='newsCount'||key==='newsOpenIn')renderNews(NEWS_LAST_ERRORS);
   else if(key==='preferredRegion')updateLive();

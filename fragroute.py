@@ -1370,7 +1370,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "20.17"   # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "20.18"   # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 # Lemon Squeezy checkout link (the app's Buy/Unlock buttons open this in the system
 # browser). Get it from your LS dashboard -> Products -> "Share" / checkout link.
@@ -2684,6 +2684,135 @@ def public_ip():
         except Exception:
             continue
     return None
+
+
+def vpn_verify():
+    """QoL 'reality check': is the VPN actually doing what you think? Reports the real exit IP +
+    where it geolocates, whether the tunnel is genuinely carrying traffic (not a dead black-hole),
+    and -- in split mode -- that ONLY FragPunk is routed. Answers the 'is my VPN even working?'
+    question with facts instead of guesswork."""
+    name = STATE.get("active_tunnel")
+    split = bool(get_setting("fragpunkOnlyVpn", False))
+    if not name:
+        return {"connected": False, "verdict": "off", "split": split, "ok": True,
+                "message": "No VPN active -- FragPunk and everything else use your normal connection."}
+    out = {"connected": True, "tunnel": name, "region": STATE.get("active_region"),
+           "split": split, "ok": True}
+    ip = public_ip()
+    out["exitIp"] = ip
+    if ip:
+        try:
+            g = _geo_lookup(ip) or {}
+            out["exitWhere"] = ", ".join([x for x in (g.get("city"), g.get("region"),
+                                          g.get("country")) if x]) or None
+            out["exitIsp"] = g.get("isp")
+        except Exception:
+            pass
+    if split:
+        try:
+            out["routedCidrs"] = len(fragpunk_route_cidrs())
+        except Exception:
+            pass
+    # liveness: does traffic actually flow through the tunnel, or is it a dead black-hole?
+    alive = None
+    try:
+        _, cfg = find_config_by_name(name)
+        if cfg:
+            alive = _verify_tunnel_live(name, cfg, timeout=6)
+    except Exception:
+        alive = None
+    out["alive"] = alive
+    if alive is False:
+        out["ok"] = False
+        out["verdict"] = "dead"
+        out["message"] = ("Tunnel '%s' is UP but passing no traffic (no handshake) -- it may be "
+                          "black-holing FragPunk. Disconnect + reconnect, or try another route." % name)
+    elif split:
+        out["verdict"] = "split"
+        out["message"] = ("Split tunnel OK: only FragPunk (%s ranges) routes through %s. Everything "
+                          "else uses your normal connection%s." % (out.get("routedCidrs", "?"), name,
+                          (" (exits %s)" % out["exitWhere"]) if out.get("exitWhere") else ""))
+    else:
+        out["verdict"] = "working"
+        out["message"] = ("Full VPN via %s%s -- all traffic routes through it."
+                          % (name, (" -- exits %s" % out["exitWhere"]) if out.get("exitWhere") else ""))
+    return out
+
+
+def connect_best_region():
+    """One-click QoL: pick the lowest-ping mapped region and connect it (no need to eyeball the
+    list). Falls back to a helpful message when nothing's measured/mapped yet."""
+    lat = STATE.get("latency") or {}
+    best_rid, best_ms = None, None
+    for rid in (STATE.get("configs") or {}):
+        try:
+            cfg = region_best_config(rid)
+        except Exception:
+            cfg = None
+        if not cfg:
+            continue
+        ms = lat.get(cfg.get("name"))
+        if ms is not None and (best_ms is None or ms < best_ms):
+            best_ms, best_rid = ms, rid
+    if not best_rid:
+        # no pings yet -> just take any mapped region so the button always does something useful
+        for rid in (STATE.get("configs") or {}):
+            if STATE["configs"].get(rid):
+                best_rid = rid
+                break
+    if not best_rid:
+        return {"ok": False, "message": "No regions mapped yet -- drop a WireGuard .conf in configs/ (or Re-scan)."}
+    r = connect_region(best_rid)
+    if r.get("ok"):
+        r["message"] = ("Connected best region: %s%s." % (best_rid,
+                        (" (~%dms)" % round(best_ms)) if best_ms is not None else "")) + \
+                        (" [FragPunk-only]" if r.get("fragpunkOnly") else "")
+    return r
+
+
+_STARTUP_TASK = "FragneticStartup"
+
+
+def _app_launch_target():
+    """The command that launches the app at logon: the frozen exe, or pythonw + fragroute_app.py."""
+    if getattr(sys, "frozen", False):
+        return '"%s"' % sys.executable
+    app = SCRIPT_DIR / "fragroute_app.py"
+    return ('pythonw "%s"' % str(app)) if app.exists() else None
+
+
+def start_with_windows(enabled):
+    """QoL: start Fragnetic automatically at logon. Uses a Scheduled Task with HIGHEST privileges
+    so the UAC-elevated app comes up WITHOUT a prompt every boot (a plain Run key would prompt).
+    The app is already elevated, so it can manage the task. Returns {ok, message}."""
+    if os.name != "nt":
+        return {"ok": False, "message": "Windows only."}
+    try:
+        if enabled:
+            tgt = _app_launch_target()
+            if not tgt:
+                return {"ok": False, "message": "Couldn't determine the app path."}
+            r = subprocess.run(["schtasks", "/Create", "/F", "/TN", _STARTUP_TASK, "/SC", "ONLOGON",
+                                "/RL", "HIGHEST", "/TR", tgt],
+                               capture_output=True, text=True, errors="replace", timeout=15, **_NO_WINDOW_KW)
+            ok = r.returncode == 0
+            return {"ok": ok, "message": ("Start with Windows: ON" if ok
+                    else "Couldn't set it: " + ((r.stderr or r.stdout or "")[:120]))}
+        else:
+            subprocess.run(["schtasks", "/Delete", "/F", "/TN", _STARTUP_TASK],
+                           capture_output=True, text=True, errors="replace", timeout=15, **_NO_WINDOW_KW)
+            return {"ok": True, "message": "Start with Windows: OFF"}
+    except Exception as e:
+        return {"ok": False, "message": str(e)[:120]}
+
+
+def _reconcile_startup():
+    """Make the logon task match the startWithWindows setting (best-effort, at boot)."""
+    try:
+        if os.name == "nt" and is_admin():
+            start_with_windows(bool(get_setting("startWithWindows", False)))
+    except Exception:
+        pass
 
 
 def active_server_info():
@@ -4455,6 +4584,7 @@ DEFAULT_SETTINGS = {
     "pingRefreshSeconds": 0,        # 0 = manual only (UI honors)
     "preferredRegion": "",          # bias the recommendation toward this region
     "maxPing": 120,                 # ping cap (mirrors the inline slider)
+    "startWithWindows": False,      # QoL: launch Fragnetic at logon (scheduled task, no UAC prompt)
     # --- onboarding ---
     "welcomeDone": False,           # first-login 'Make it yours' wallpaper setup shown once (persisted so it never re-pops)
     "tourDone": False,              # first-login guided app tour offered once
@@ -8147,6 +8277,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/status":
             return self._json(status_snapshot(include_ip=False))
 
+        if path == "/api/vpn/verify":
+            # QoL: is the VPN actually working? exit IP + geo, tunnel-alive probe, split status.
+            return self._json(vpn_verify())
+
         if path == "/api/update/check":
             # is a newer build published? (cached 6h; best-effort)
             return self._json(check_for_update())
@@ -8734,6 +8868,18 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"ok": False, "message": "unknown region"}, 400)
                 return self._json(connect_region(rid))
             return self._json({"ok": False, "message": "need a region or config"}, 400)
+
+        if path == "/api/connect/best":
+            # QoL one-click: connect the lowest-ping mapped region
+            return self._json(connect_best_region())
+
+        if path == "/api/startup":
+            # QoL: toggle launch-at-logon (creates/removes a scheduled task) + persist the setting
+            en = bool(body.get("enabled"))
+            r = start_with_windows(en)
+            if r.get("ok"):
+                save_settings({"startWithWindows": en})
+            return self._json(r)
 
         if path == "/api/disconnect":
             return self._json(disconnect())
@@ -9507,6 +9653,7 @@ def main():
             print(f" Cleaned stray tunnels: {', '.join(stray)}")
     except Exception:
         pass
+    _reconcile_startup()   # make the logon task match the startWithWindows setting
 
     # warm the latency cache in the background so first paint has data
     threading.Thread(target=refresh_latency, daemon=True).start()
