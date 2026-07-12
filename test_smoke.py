@@ -211,8 +211,12 @@ def test_split_tunnel_conf():
     j.write_text('{"regions": {}}')     # empty learned set -> seed CIDRs still apply
     F.SERVERS_PATH = j
     cidrs = F.fragpunk_route_cidrs()
-    check("split: fragpunk_route_cidrs returns seed ranges", len(cidrs) >= 3)
+    check("split: fragpunk_route_cidrs returns seed ranges", len(cidrs) >= 2)
     check("split: never contains the default route", "0.0.0.0/0" not in cidrs)
+    # never route broad /16 shared-cloud ranges through the VPN (that throttled non-FragPunk traffic)
+    import ipaddress as _ip
+    broad = [c for c in cidrs if _ip.ip_network(c, strict=False).prefixlen <= 16]
+    check("split: no broad /16 shared-cloud ranges routed (%s)" % (broad or "clean"), not broad)
     conf = Path(tempfile.mkdtemp()) / "wg-DE-1.conf"
     conf.write_text("[Interface]\nPrivateKey = K\nAddress = 10.2.0.2/32\nDNS = 10.2.0.1\n\n"
                     "[Peer]\nPublicKey = P\nEndpoint = 9.9.9.9:51820\nAllowedIPs = 0.0.0.0/0, ::/0\n")

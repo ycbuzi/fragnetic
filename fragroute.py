@@ -3887,31 +3887,51 @@ def region_block_map(target_region):
     return block
 
 
+# Split-tunnel routing uses a TIGHT set. The region-LOCK seeds (_REGION_SEED_CIDRS) include broad
+# /16s (e.g. GCP 136.119.0.0/16, Alibaba 47.x/8.x /16) -- correct for *blocking* an away region,
+# but for *routing* they'd drag huge swaths of shared Google/Alibaba cloud (non-FragPunk apps,
+# APIs, CDNs) onto the VPN and cap that traffic at the tunnel's speed. So a route CIDR is only
+# kept if it's this tight or tighter -- broad /16s are dropped (learned /24s cover the real
+# servers within them, and the lobby covers region assignment).
+_SPLIT_MIN_PREFIX = 17           # keep /17 .. /32 (incl. the 8.221.48.0/20 cluster + all /24s); drop /16 and broader
+
+
 def fragpunk_route_cidrs():
-    """ALL FragPunk destination CIDRs -- every region's curated seed ranges + the /24s we've
-    LEARNED from real matches + the live lobby/backend infra. This is the AllowedIPs set for a
-    FRAGPUNK-ONLY (split) tunnel: only traffic to these goes through the VPN, so the region
-    switch reaches the game while your browser / Discord / downloads stay on the normal line."""
-    cidrs = set()
+    """TIGHT FragPunk destination CIDRs for a FRAGPUNK-ONLY (split) tunnel's AllowedIPs: the /24s
+    LEARNED from real matches + the live lobby/backend infra + the NARROW FragPunk-specific seeds.
+    Broad /16 shared-cloud ranges are deliberately excluded so ONLY FragPunk rides the VPN -- your
+    browser / Discord / downloads (and anything else on Google/Alibaba cloud) stay full-speed on
+    the normal line. Coverage of the actual game servers grows precisely as you play."""
+    import ipaddress
+    raw = set()
     for lst in _REGION_SEED_CIDRS.values():
-        cidrs.update(lst)
+        raw.update(lst)
     regions = (load_servers().get("regions", {}) or {})
     for bucket in regions.values():
         for ip in (bucket or {}).keys():
             try:
-                cidrs.add(_ip_to_24(ip))
+                raw.add(_ip_to_24(ip))
             except Exception:
                 pass
     # the lobby + backends must tunnel too, or matchmaking would still see your real region
     try:
         for ip in (live_game_infra_ips() or []):
             try:
-                cidrs.add(_ip_to_24(ip))
+                raw.add(_ip_to_24(ip))
             except Exception:
                 pass
     except Exception:
         pass
-    return sorted(c for c in cidrs if c)
+    out = []
+    for c in raw:
+        if not c:
+            continue
+        try:
+            if ipaddress.ip_network(c, strict=False).prefixlen >= _SPLIT_MIN_PREFIX:
+                out.append(c)       # tight enough -> route it; broad /16 shared-cloud ranges dropped
+        except Exception:
+            pass
+    return sorted(set(out))
 
 
 def _fragonly_conf(cfg):
