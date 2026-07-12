@@ -241,11 +241,22 @@ def test_qol():
     check("qol: startWithWindows default present", "startWithWindows" in F.DEFAULT_SETTINGS)
 
 
+# --- 16) video outputs must be faststart (moov at front) or the WebView player can't play them --
+def test_video_faststart():
+    here = os.path.dirname(os.path.abspath(__file__))
+    src = open(os.path.join(here, "fragroute_video.py"), encoding="utf-8").read()
+    check("video: final outputs use +faststart (%d found)" % src.count('"+faststart"'),
+          src.count('"+faststart"') >= 4)
+    check("video: montage no-title path re-muxes (no raw shutil.copy2 that leaves moov at end)",
+          "shutil.copy2(concat, out)" not in src)
+
+
 def main():
     for t in (test_atomic_write, test_host_allowlist, test_prompt_injection_clause,
               test_live_mode_gate, test_proc_job, test_regionlock_sweep, test_capture_modules,
               test_license_revoke, test_public_ip, test_ver_tuple, test_subprocess_decode_safe,
-              test_ollama_backend, test_semantic_rag, test_split_tunnel_conf, test_qol):
+              test_ollama_backend, test_semantic_rag, test_split_tunnel_conf, test_qol,
+              test_video_faststart):
         print("[%s]" % t.__name__)
         try:
             t()

@@ -167,7 +167,7 @@ def trim(src, start, dur, out=None):
         return {"ok": False, "message": "clip/ffmpeg unavailable"}
     out = out or str(_out_dir() / ("trim_%s.mp4" % time.strftime("%Y%m%d_%H%M%S")))
     ok, err = _ff(["-ss", str(float(start)), "-i", src, "-t", str(float(dur))] +
-                  _vcodec() + ["-an", out])
+                  _vcodec() + ["-an", "-movflags", "+faststart", out])
     return {"ok": ok, "file": out, "name": os.path.basename(out)} if ok else {"ok": False, "message": err}
 
 
@@ -242,12 +242,13 @@ def montage(clips, out=None, music=None, title=None):
             else:
                 maps = ["-map", "0:v:0"] + maps
             ok, err = _ff(["-i", concat, "-i", music, "-filter_complex", fc] + maps +
-                          ["-shortest"] + _vcodec() + ["-c:a", "aac", "-b:a", "192k", out])
+                          ["-shortest"] + _vcodec() + ["-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", out])
         elif title_vf:
-            ok, err = _ff(["-i", concat, "-vf", title_vf] + _vcodec() + ["-c:a", "copy", out])
+            ok, err = _ff(["-i", concat, "-vf", title_vf] + _vcodec() + ["-c:a", "copy", "-movflags", "+faststart", out])
         else:
-            import shutil
-            shutil.copy2(concat, out); ok = True
+            # remux (stream-copy) with faststart so the <video> player can read metadata up
+            # front -- a raw copy left the moov atom at the END and wouldn't play in WebView2.
+            ok, err = _ff(["-i", concat, "-c", "copy", "-movflags", "+faststart", out])
         # cleanup temp
         for n in normd + [listf, concat]:
             try:
@@ -268,7 +269,7 @@ def caption(src, text, out=None):
         return {"ok": False, "message": "clip/ffmpeg unavailable"}
     out = out or str(_out_dir() / ("caption_%s.mp4" % time.strftime("%Y%m%d_%H%M%S")))
     ok, err = _ff(["-i", src, "-vf", _drawtext(text, size=52, y="h-text_h-40")] +
-                  _vcodec() + ["-c:a", "copy", out])
+                  _vcodec() + ["-c:a", "copy", "-movflags", "+faststart", out])
     return {"ok": ok, "file": out, "name": os.path.basename(out)} if ok else {"ok": False, "message": err}
 
 
