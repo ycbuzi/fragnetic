@@ -2467,6 +2467,93 @@ def disconnect(_kind=None, _wg=None):
             "active": STATE["active_tunnel"]}
 
 
+def _wg_cli():
+    """Locate wg.exe (the WireGuard query CLI) for handshake checks -- next to the wireguard.exe
+    we use, or the standard install. None if unavailable (then liveness check is skipped)."""
+    cands = []
+    try:
+        _, wg = find_wireguard()
+        if wg:
+            cands.append(Path(wg).parent / "wg.exe")
+    except Exception:
+        pass
+    cands.append(Path(r"C:\Program Files\WireGuard\wg.exe"))
+    for c in cands:
+        try:
+            if c.exists():
+                return str(c)
+        except Exception:
+            pass
+    return None
+
+
+def _conf_source_ip(cfg):
+    """The tunnel's own IPv4 (the [Interface] Address in the .conf), for a source-bound probe."""
+    try:
+        for line in Path(cfg["path"]).read_text(encoding="utf-8", errors="replace").splitlines():
+            s = line.strip()
+            if s.lower().startswith("address") and "=" in s:
+                for part in s.split("=", 1)[1].split(","):
+                    ip = part.strip().split("/")[0].strip()
+                    if ip.count(".") == 3:
+                        return ip
+    except Exception:
+        pass
+    return None
+
+
+def _tunnel_handshaked(name, wgcli):
+    """True if tunnel `name` has a non-zero latest-handshake (it actually established). False if
+    never handshaked. None on error (caller must not fail a tunnel on an inconclusive check)."""
+    try:
+        out = subprocess.run([wgcli, "show", name, "latest-handshakes"],
+                             capture_output=True, text=True, errors="replace", timeout=6,
+                             **_NO_WINDOW_KW)
+        if out.returncode != 0:
+            return None
+        for line in (out.stdout or "").splitlines():
+            parts = line.split()
+            if parts and parts[-1].isdigit() and int(parts[-1]) > 0:
+                return True
+        return False
+    except Exception:
+        return None
+
+
+def _verify_tunnel_live(name, cfg, timeout=7):
+    """After connecting, confirm the WireGuard tunnel ACTUALLY established (completed a handshake),
+    so we never report a dead/black-hole tunnel as 'connected'. A source-bound UDP probe toward a
+    FragPunk IP (inside AllowedIPs for full AND split tunnels) triggers the handshake even with no
+    keepalive/traffic; then we poll wg.exe. True=alive, False=dead, None=inconclusive (don't fail)."""
+    import socket
+    wgcli = _wg_cli()
+    if not wgcli:
+        return None
+    src = _conf_source_ip(cfg)
+    for ip in ("8.221.59.131", "8.211.80.1", "8.221.48.1"):   # FragPunk-range dests -> route into the tunnel
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            if src:
+                s.bind((src, 0))
+            s.sendto(b"\x00", (ip, 11000))
+        except Exception:
+            pass
+        finally:
+            try:
+                s.close()
+            except Exception:
+                pass
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        hs = _tunnel_handshaked(name, wgcli)
+        if hs is True:
+            return True
+        if hs is None:
+            return None
+        time.sleep(1.0)
+    return False
+
+
 def _connect_entry(region_id, cfg):
     """Bring up a specific config entry (auto-drops the old tunnel first)."""
     # cfg can be None -- region_best_config() returns None if the region's config list
@@ -2515,6 +2602,23 @@ def _connect_entry(region_id, cfg):
     if ok:
         STATE["active_tunnel"] = name
         STATE["active_region"] = region_id
+        # LIVENESS: /installtunnelservice succeeding only means the SERVICE installed -- the tunnel
+        # can still never handshake (server down / bad config / routing loop) and then silently
+        # BLACK-HOLE everything routed into it, including FragPunk. Verify it actually came up; if
+        # not, tear it down and report the failure honestly instead of a false "connected".
+        try:
+            live = _verify_tunnel_live(name, up_cfg)
+        except Exception:
+            live = None
+        if live is False:
+            _run([wg, "/uninstalltunnelservice", name])
+            STATE["active_tunnel"] = None
+            STATE["active_region"] = None
+            diag("vpn", False, msg="%s installed but never handshaked -> torn down (dead server/config)" % name)
+            return {"ok": False, "active": None, "activeRegion": None, "activeConfig": None,
+                    "command": " ".join(cmd), "fragpunkOnly": False, "deadTunnel": True,
+                    "message": ("VPN didn't establish -- no handshake (the server may be down or the "
+                                "config is bad). Torn it down so it can't black-hole FragPunk.")}
         # if this was a mid-match switch, arm the safety net to undo it if bad
         try:
             _arm_auto_revert(prev_tunnel)
