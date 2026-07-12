@@ -66,6 +66,13 @@ fragroute_license.json
 fragroute_throttle.json
 .fragroute_trial
 
+# --- local knowledge base (internal dev docs; not for the public repo) ---
+# The Obsidian vault + the graphify code-graph. Regenerate the graph with update_knowledge.bat;
+# see vault/Keeping this current.md. Remove these two lines if you WANT them version-controlled.
+vault/
+.obsidian/
+graphify-out/
+
 # --- editor / OS noise ---
 .vscode/
 .idea/
