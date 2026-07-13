@@ -19,7 +19,7 @@ window that sits next to the game.
 |---|---|
 | **AI Coach** | A private, on-device coach — **chat, voice, and vision** (it can read your maps/scoreboards). Ask about weapons, economy, lancers, maps, or your own play. Runs on bundled local models, or point it at **your own [Ollama](https://ollama.com) models** for a bigger brain. Grounded in FragPunk knowledge; nothing is uploaded. |
 | **Recording & review** | Automatic gameplay capture (rolling buffer + full-match), **auto-highlights** (it finds your action moments and stitches a montage), and AI review of your clips. Hardware-accelerated on NVIDIA, AMD, and Intel GPUs. |
-| **Region intelligence** | Measures your **true ping to every region** and shows which server region you're actually playing on — so you can pick the best region in-game with real numbers, not guesses. Optional **VPN region routing** with a **FragPunk-only split tunnel** (only the game rides the VPN; your browser/Discord stay full-speed) and a no-VPN **region lock**. |
+| **Region intelligence** | Measures your **true ping to every region** and shows which server region you're actually playing on — so you can pick the best region in-game with real numbers, not guesses. Optional **VPN region routing** with a **FragPunk-only split tunnel** (only the game rides the VPN; your browser/Discord stay full-speed) and a no-VPN **region lock**. One-click **connect the best region**, plus a built-in **VPN verifier** (real exit IP + a live check that the tunnel is actually carrying traffic). |
 | **AI image tools** | Local image generation (Pro). |
 | **Locker & more** | Auto-cropped skin gallery, per-lancer profiles, health diagnostics. |
 
