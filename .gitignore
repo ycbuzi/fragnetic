@@ -84,3 +84,8 @@ fragroute_ui.BROKEN-17.6.html.bak
 fragroute_skins_catalog.json
 notes_20.txt
 fragroute_lancer_catalog.json
+
+# demo video build artifacts (heavy; regenerate with demo_make.py)
+Fragnetic-demo.mp4
+demo_frames/
+headless_tour.log
