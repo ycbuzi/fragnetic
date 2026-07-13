@@ -25,7 +25,8 @@ TOUR = [
     ("routing", "Region Intelligence",         "True ping to every region + a FragPunk-only split VPN.", None),
     ("locker",  "Skin Locker",                 "Auto-cropped gallery built from your own screenshots.", None),
     ("weapons", "Weapon Skins",                "Per-weapon catalog with your uploads, owned-flagged.", None),
-    ("setup",   "System Check  ·  new in 20.19","See exactly what your PC supports before you commit.", "#sysCheckCard"),
+    ("setup",   "System Check  ·  brand-new", "See exactly what your PC supports before you commit.", "#sysCheckCard"),
+    ("__settings__", "Settings",              "Tune routing, capture, coach & appearance — all local.", None),
     ("health",  "Health Diagnostics",          "Every subsystem live — and provably zero FPS impact.", None),
 ]
 
@@ -51,12 +52,33 @@ def capture():
         pg = b.new_page(viewport={"width": W, "height": H}, device_scale_factor=1)
         pg.goto(URL, wait_until="domcontentloaded")
         pg.wait_for_timeout(2500)
-        pg.evaluate("try{_hideGate();refreshEntitlement();}catch(e){}")
+        pg.evaluate("try{_hideGate();}catch(e){}")
+        # Represent what a REAL customer sees, not the owner's god-mode: force a trial
+        # (Pro-preview) entitlement so admin-only chrome disappears (build tag, dev
+        # readouts, the Label tab). We set ENT directly instead of calling
+        # refreshEntitlement() so the owner-machine admin tier can't race back in.
+        pg.evaluate("""()=>{try{
+            window.ENT={tier:'trial',tierLabel:'Free trial',trialActive:true,trialDaysLeft:14,features:{},sources:['trial']};
+            document.body.classList.remove('admin-mode');
+            var tb=document.getElementById('acctTier'); if(tb){tb.textContent='Free trial';tb.className='tier-badge t-trial';}
+            if(typeof refreshTabsForTier==='function')refreshTabsForTier();
+            if(typeof applyFeatureLocks==='function')applyFeatureLocks();
+        }catch(e){}}""")
         # dim the user's decorative match wallpaper so the FUNCTIONAL UI reads clearly on camera
         pg.add_style_tag(content="#appWallpaper{opacity:.10!important}"
                                  "#appWallpaperDim{display:block!important;background:rgba(7,6,10,.9)!important}")
         pg.wait_for_timeout(1200)
         for pane, _t, _s, scroll in TOUR:
+            if pane == "__settings__":
+                # open the Settings drawer over the routing pane, on the Routing & VPN tab
+                pg.evaluate("()=>{try{switchTab('routing');openSettings();"
+                            "if(typeof showSetTab==='function')showSetTab('routing');}catch(e){}}")
+                pg.wait_for_timeout(1600)
+                pg.screenshot(path=os.path.join(RAW, "settings.png"))
+                pg.evaluate("()=>{try{closeSettings()}catch(e){}}")
+                pg.wait_for_timeout(300)
+                print("captured settings")
+                continue
             pg.evaluate("(n)=>{try{switchTab(n)}catch(e){}}", pane)
             pg.wait_for_timeout(2600)
             if pane == "coach":
@@ -134,12 +156,12 @@ def compose():
     d.text((sx + d.textlength("FRAG", font=f1), H/2 - 130), "NETIC", font=f1, fill=PINK)
     d.text((W/2, H/2 + 10), "your FragPunk companion", font=f2, anchor="mm", fill=WHITE)
     d.text((W/2, H/2 + 70), "Live demo — real data, running on a real PC", font=f3, anchor="mm", fill=MUTE)
-    d.text((W/2, H - 60), "build 20.19", font=font(20, False), anchor="mm", fill=CYAN)
     tp = os.path.join(COMP, "00_title.png"); title.save(tp); frames.append(tp)
 
     ft, fs = font(44), font(26, False)
     for idx, (pane, ttl, sub, _sc) in enumerate(TOUR, 1):
-        shot = Image.open(os.path.join(RAW, pane + ".png")).convert("RGB")
+        fname = "settings" if pane == "__settings__" else pane
+        shot = Image.open(os.path.join(RAW, fname + ".png")).convert("RGB")
         if shot.size != (W, H):
             shot = shot.resize((W, H))
         canvas = shot.copy()
@@ -149,10 +171,9 @@ def compose():
         for i in range(grad_h):
             a = int(235 * (i / grad_h))
             d.line([(0, H - grad_h + i), (W, H - grad_h + i)], fill=(7, 8, 12, a))
-        # top accent bar + build tag (app already shows its own wordmark top-left)
+        # top accent bar (app already shows its own wordmark top-left)
         d.rectangle([0, 0, W, 6], fill=(*CYAN, 255))
-        d.rectangle([0, 6, W, 46], fill=(7, 8, 12, 150))
-        d.text((W - 132, 14), "build 20.19", font=font(20, False), fill=CYAN)
+        d.rectangle([0, 6, W, 40], fill=(7, 8, 12, 130))
         # accent bar + title + subtitle
         by = H - 150
         d.rounded_rectangle([40, by + 6, 48, by + 54], 4, fill=(*PINK, 255))
@@ -178,7 +199,7 @@ def compose():
 
 def _enc_ok(codec):
     try:
-        subprocess.run([FF, "-hide_banner", "-encoders"], capture_output=True, text=True).stdout
+        subprocess.run([FF, "-hide_banner", "-encoders"], capture_output=True, text=True, errors="replace").stdout
         return True
     except Exception:
         return False
@@ -197,11 +218,11 @@ def encode(frames):
               % (int(dur * 30), W, H, fo))
         cmd = [FF, "-y", "-loop", "1", "-i", fp, "-t", "%.2f" % dur, "-r", "30",
                "-vf", vf, "-c:v", vcodec, "-b:v", "6M", "-pix_fmt", "yuv420p", out]
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        r = subprocess.run(cmd, capture_output=True, text=True, errors="replace")
         if r.returncode != 0:
             # fallback to software encoder
             cmd[cmd.index("-c:v") + 1] = "libopenh264"
-            r = subprocess.run(cmd, capture_output=True, text=True)
+            r = subprocess.run(cmd, capture_output=True, text=True, errors="replace")
             if r.returncode != 0:
                 print("scene encode failed", fp, r.stderr[-400:]); sys.exit(2)
         scene_files.append(out)
@@ -212,7 +233,7 @@ def encode(frames):
             fh.write("file '%s'\n" % s.replace("\\", "/"))
     r = subprocess.run([FF, "-y", "-f", "concat", "-safe", "0", "-i", lst,
                         "-c", "copy", "-movflags", "+faststart", FINAL],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, errors="replace")
     if r.returncode != 0:
         print("concat failed", r.stderr[-500:]); sys.exit(3)
     print("WROTE", FINAL)

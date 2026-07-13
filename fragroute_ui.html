@@ -28,6 +28,9 @@
   html,body{background:var(--bg-0);color:var(--text);font-family:'Rajdhani',sans-serif;min-height:100vh;overflow-x:hidden}
   body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(var(--grid-line) 1px,transparent 1px),linear-gradient(90deg,var(--grid-line) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
   body::after{content:'';position:fixed;inset:0;background:radial-gradient(circle at 15% 10%,rgba(255,47,146,.12),transparent 45%),radial-gradient(circle at 90% 90%,rgba(47,240,212,.08),transparent 50%);pointer-events:none;z-index:0}
+  /* owner/admin-only chrome (build number, dev launch-flag readouts): hidden for
+     every normal customer; revealed only when body.admin-mode is set (admin tier). */
+  body:not(.admin-mode) [data-admin-only]{display:none!important}
   /* user-chosen wallpaper (their own image) sits behind the UI; dim for contrast */
   #appWallpaper{position:fixed;inset:0;z-index:0;background-size:cover;background-position:center;pointer-events:none;display:none}
   #appWallpaperDim{position:fixed;inset:0;z-index:0;background:rgba(7,6,10,.65);pointer-events:none;display:none}
@@ -1164,7 +1167,7 @@
   <header>
     <div>
       <div class="brand-mark" data-text="FRAGNETIC">FRAG<span class="sub">NETIC</span></div>
-      <div class="brand-tag">FragPunk Companion · Routing · AI Coach · Capture<span id="buildTag"></span></div>
+      <div class="brand-tag">FragPunk Companion · Routing · AI Coach · Capture<span id="buildTag" data-admin-only></span></div>
     </div>
     <div class="clock">
       <div class="clock-time" id="clockTime">--:--:--</div>
@@ -1998,7 +2001,7 @@
 
     <div class="set-group" data-sgroup="adv">
       <div class="set-group-title">Data &amp; Advanced</div>
-      <div class="set-row">
+      <div class="set-row" data-admin-only>
         <div class="set-info"><div class="set-label">Server port</div><div class="set-desc">Local control server (change via launch flag).</div></div>
         <div class="set-ctl set-static" id="setPort">—</div>
       </div>
@@ -2006,7 +2009,7 @@
         <div class="set-info"><div class="set-label">Configs folder</div><div class="set-desc">Where your ProtonVPN .conf files live.</div></div>
         <div class="set-ctl set-static" id="setConfigsDir" title="">—</div>
       </div>
-      <div class="set-row">
+      <div class="set-row" data-admin-only>
         <div class="set-info"><div class="set-label">Dry-run mode</div><div class="set-desc">Launch flag; when on, tunnel commands are simulated.</div></div>
         <div class="set-ctl set-static" id="setDryRun">—</div>
       </div>
@@ -6114,6 +6117,8 @@ async function refreshEntitlement(){
   catch(e){ ENT = {tier:'free', tierLabel:'Free', features:{}}; }
   const tb = _g('acctTier');
   if (tb){ tb.textContent = (ENT.tierLabel || ENT.tier || 'Free'); tb.className = 'tier-badge t-' + (ENT.tier || 'free'); }
+  // reveal owner/admin-only chrome (build number, dev launch-flag readouts) only for the owner
+  try{ document.body.classList.toggle('admin-mode', !!(ENT && (ENT.tier === 'admin' || ENT.disabled))); }catch(e){}
   applyFeatureLocks();
   try{ if (typeof refreshTabsForTier === 'function') refreshTabsForTier(); }catch(e){}  // show/hide dev-only tabs
   try{ const _g2=document.getElementById('authGate'); if((!_g2||_g2.style.display==='none') && typeof maybeWelcome==='function') maybeWelcome(); }catch(e){}  // first-login wallpaper setup (once)

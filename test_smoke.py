@@ -251,6 +251,20 @@ def test_video_faststart():
           "shutil.copy2(concat, out)" not in src)
 
 
+# --- 18) owner/admin-only chrome must be gated (build number + dev readouts hidden from buyers) --
+def test_admin_gating():
+    here = os.path.dirname(os.path.abspath(__file__))
+    html = open(os.path.join(here, "fragroute_ui.html"), encoding="utf-8").read()
+    check("admin-gate: CSS hides [data-admin-only] unless body.admin-mode",
+          "body:not(.admin-mode) [data-admin-only]" in html)
+    check("admin-gate: header build tag is admin-only",
+          'id="buildTag" data-admin-only' in html)
+    check("admin-gate: dev launch-flag readouts (port/dry-run) are admin-only",
+          html.count("set-row\" data-admin-only") >= 2 or html.count('set-row" data-admin-only') >= 2)
+    check("admin-gate: admin-mode is toggled from entitlement tier",
+          "classList.toggle('admin-mode'" in html and "tier === 'admin'" in html)
+
+
 # --- 17) first-run system check aggregates readiness items with per-item verdicts ------------
 def test_syscheck():
     import fragroute as F
@@ -270,7 +284,7 @@ def main():
               test_live_mode_gate, test_proc_job, test_regionlock_sweep, test_capture_modules,
               test_license_revoke, test_public_ip, test_ver_tuple, test_subprocess_decode_safe,
               test_ollama_backend, test_semantic_rag, test_split_tunnel_conf, test_qol,
-              test_video_faststart, test_syscheck):
+              test_video_faststart, test_syscheck, test_admin_gating):
         print("[%s]" % t.__name__)
         try:
             t()
