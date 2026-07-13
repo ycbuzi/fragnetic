@@ -40,6 +40,9 @@
   .hero .sub{font-size:clamp(17px,2.5vw,22px);color:var(--muted);margin:22px auto 0;max-width:640px;position:relative}
   .hero .cta{margin-top:38px;display:flex;gap:14px;justify-content:center;flex-wrap:wrap;position:relative}
   .hero .local{margin-top:20px;font-size:13px;color:var(--good);position:relative}
+  .hero-video{margin:42px auto 0;max-width:880px;position:relative}
+  .hero-video video{width:100%;border-radius:14px;border:1px solid var(--border,#2a2838);box-shadow:0 24px 70px rgba(0,0,0,.55);display:block;background:#0b0c12}
+  .hero-video-cap{margin-top:12px;font-size:13px;color:var(--muted)}
 
   /* sections */
   section{padding:64px 0}
@@ -99,6 +102,13 @@
       <a href="#pricing" class="btn btn-ghost">See Pro features</a>
     </div>
     <div class="local">🔒 Runs 100% locally on your PC. No account required to try it. Nothing uploaded.</div>
+    <div class="hero-video">
+      <video controls preload="none" poster="demo-poster.jpg" playsinline>
+        <source src="demo.mp4" type="video/mp4">
+        Your browser can't play this video — <a href="demo.mp4">download it here</a>.
+      </video>
+      <div class="hero-video-cap">▶ 2-minute demo — a real first-time customer, start to finish</div>
+    </div>
   </div>
 </section>
 
