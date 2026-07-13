@@ -251,6 +251,18 @@ def test_video_faststart():
           "shutil.copy2(concat, out)" not in src)
 
 
+# --- 21) coach must be grounded in the REAL lancer roster + forbidden from inventing names -----
+def test_coach_lancer_grounding():
+    here = os.path.dirname(os.path.abspath(__file__))
+    src = open(os.path.join(here, "fragroute_ai.py"), encoding="utf-8").read()
+    roster = ["Broker", "Nitro", "Hollowpoint", "Jaguar", "Chum", "Corona", "Serket",
+              "Pathojen", "Zephyr", "Spider", "Kismet", "Axon", "Sonar"]
+    check("coach: system prompt lists the real 13-lancer roster",
+          all(name in src for name in roster))
+    check("coach: system prompt forbids inventing/guessing lancer names",
+          "NEVER name, invent" in src and ("do NOT guess" in src or "not certain" in src))
+
+
 # --- 20) VPN framing: region-lock marked experimental + one-click free-config import ----------
 def test_vpn_accessibility():
     here = os.path.dirname(os.path.abspath(__file__))
@@ -315,7 +327,7 @@ def main():
               test_license_revoke, test_public_ip, test_ver_tuple, test_subprocess_decode_safe,
               test_ollama_backend, test_semantic_rag, test_split_tunnel_conf, test_qol,
               test_video_faststart, test_syscheck, test_admin_gating, test_getting_started,
-              test_vpn_accessibility):
+              test_vpn_accessibility, test_coach_lancer_grounding):
         print("[%s]" % t.__name__)
         try:
             t()
