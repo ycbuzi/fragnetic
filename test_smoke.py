@@ -251,6 +251,22 @@ def test_video_faststart():
           "shutil.copy2(concat, out)" not in src)
 
 
+# --- 20) VPN framing: region-lock marked experimental + one-click free-config import ----------
+def test_vpn_accessibility():
+    here = os.path.dirname(os.path.abspath(__file__))
+    html = open(os.path.join(here, "fragroute_ui.html"), encoding="utf-8").read()
+    check("vpn: region-lock marked EXPERIMENTAL", "xp-badge" in html and ">EXPERIMENTAL<" in html)
+    check("vpn: free-config guide modal present", 'id="vpnGuideOv"' in html and "Get a free WireGuard config" in html)
+    check("vpn: one-click .conf import wired", 'id="vpnConfFile"' in html and "/api/configs/import" in html)
+    check("vpn: framing says VPN optional / ping+lock work without it",
+          "You don't need a VPN" in html or "optional · only to improve ping" in html)
+    import fragroute as F
+    src = open(os.path.join(here, "fragroute.py"), encoding="utf-8").read()
+    check("vpn: import endpoint validates WireGuard + sanitizes filename",
+          '"/api/configs/import"' in src and "[Interface]" in src and "[Peer]" in src)
+    check("vpn: open-configs-folder endpoint present", '"/api/configs/open"' in src)
+
+
 # --- 19) first-run Getting Started checklist wired (onboarding a new buyer through setup) ------
 def test_getting_started():
     here = os.path.dirname(os.path.abspath(__file__))
@@ -298,7 +314,8 @@ def main():
               test_live_mode_gate, test_proc_job, test_regionlock_sweep, test_capture_modules,
               test_license_revoke, test_public_ip, test_ver_tuple, test_subprocess_decode_safe,
               test_ollama_backend, test_semantic_rag, test_split_tunnel_conf, test_qol,
-              test_video_faststart, test_syscheck, test_admin_gating, test_getting_started):
+              test_video_faststart, test_syscheck, test_admin_gating, test_getting_started,
+              test_vpn_accessibility):
         print("[%s]" % t.__name__)
         try:
             t()

@@ -1370,7 +1370,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "20.21"   # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "20.22"   # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 # Lemon Squeezy checkout link (the app's Buy/Unlock buttons open this in the system
 # browser). Get it from your LS dashboard -> Products -> "Share" / checkout link.
@@ -9326,6 +9326,48 @@ class Handler(BaseHTTPRequestHandler):
             diag("regionlock", True, msg="cleared (%d rules)" % r.get("removed", 0))
             return self._json({"ok": True, "message": "Region lock off (%d rules removed)."
                                % r.get("removed", 0), **r})
+
+        if path == "/api/configs/import":
+            # One-click WireGuard .conf import: the user picks file(s) in the UI; we
+            # validate + save them into the configs folder + rescan. Removes the
+            # "manually drop files in a folder" friction for a normal buyer.
+            items = (body or {}).get("files")
+            if not items and (body or {}).get("content"):
+                items = [{"name": (body or {}).get("name", ""), "content": body["content"]}]
+            if not items:
+                return self._json({"ok": False, "message": "no files given."}, 400)
+            added, skipped = [], []
+            cdir = STATE["configs_dir"]
+            for it in items[:40]:
+                raw = (it.get("content") or "")
+                if "[Interface]" not in raw or "[Peer]" not in raw:
+                    skipped.append({"name": it.get("name", "?"), "why": "not a WireGuard .conf"})
+                    continue
+                stem = re.sub(r"[^A-Za-z0-9_.-]", "-", os.path.basename(it.get("name") or "config")).strip("-.")
+                if not stem:
+                    stem = "config"
+                if not stem.lower().endswith(".conf"):
+                    stem += ".conf"
+                try:
+                    (cdir / stem).write_text(raw, encoding="utf-8")
+                    added.append(stem)
+                except Exception as e:
+                    skipped.append({"name": stem, "why": str(e)})
+            if added:
+                discover_configs(cdir)
+            return self._json({"ok": bool(added), "added": added, "skipped": skipped,
+                               "mapped": {rid: len(v) for rid, v in STATE["configs"].items()}})
+
+        if path == "/api/configs/open":
+            # Open the configs folder in Explorer so the user can drop files manually too.
+            try:
+                d = STATE["configs_dir"]
+                d.mkdir(parents=True, exist_ok=True)
+                if os.name == "nt":
+                    os.startfile(str(d))   # noqa: explorer
+                return self._json({"ok": True, "path": str(d)})
+            except Exception as e:
+                return self._json({"ok": False, "message": str(e)}, 500)
 
         if path == "/api/capture/start":
             if fragroute_capture is None:

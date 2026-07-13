@@ -240,6 +240,17 @@
   .lat-unknown{color:var(--text-mute)}
   .exp-val{color:var(--cyan);text-shadow:0 0 10px var(--cyan-glow)}
   .exp-val.estimated{color:var(--text-dim);text-shadow:none}
+  .xp-badge{font-size:8.5px;font-weight:700;letter-spacing:.12em;color:#fbbf24;border:1px solid rgba(251,191,36,.5);background:rgba(251,191,36,.10);border-radius:4px;padding:2px 6px;margin-left:8px;text-transform:uppercase;cursor:help}
+  .vpn-guide-ov{position:fixed;inset:0;z-index:9600;display:flex;align-items:center;justify-content:center;background:rgba(5,5,10,.72);backdrop-filter:blur(4px);padding:20px}
+  .vpn-guide-box{background:var(--bg-2,#14131c);border:1px solid var(--cyan,#2ff0d4);border-radius:16px;box-shadow:0 24px 70px rgba(0,0,0,.6);width:min(560px,96vw);max-height:92vh;overflow:auto;padding:24px}
+  .vpn-guide-eyebrow{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--cyan,#2ff0d4);margin-bottom:6px}
+  .vpn-guide-title{font-family:Rajdhani,sans-serif;font-size:23px;font-weight:700;margin-bottom:6px}
+  .vpn-guide-sub{font-family:Rajdhani,sans-serif;font-size:14px;color:var(--text-dim,#9aa0ad);line-height:1.5;margin-bottom:12px}
+  .vpn-guide-steps{margin:0 0 12px;padding-left:20px;font-family:Rajdhani,sans-serif;font-size:14px;color:var(--text,#eef0f5);line-height:1.6}
+  .vpn-guide-steps li{margin-bottom:7px}
+  .vpn-guide-url{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--cyan,#2ff0d4);background:rgba(47,240,212,.08);border:1px solid rgba(47,240,212,.25);border-radius:4px;padding:1px 6px}
+  .vpn-guide-note{font-family:Rajdhani,sans-serif;font-size:12.5px;color:var(--text-dim,#9aa0ad);line-height:1.45;margin-bottom:16px;border-top:1px solid rgba(255,255,255,.07);padding-top:10px}
+  .vpn-guide-actions{display:flex;gap:8px;justify-content:flex-end}
   .conf-meter{display:flex;gap:3px;margin-top:6px}
   .conf-dot{width:6px;height:6px;border-radius:50%;background:rgba(47,240,212,.15);border:1px solid rgba(47,240,212,.3)}
   .conf-dot.on{background:var(--cyan);box-shadow:0 0 6px var(--cyan);border-color:var(--cyan)}
@@ -1356,6 +1367,7 @@
     <div class="rt-head">
       <span class="sc-dot" id="rlDot" style="background:#ff5c8a;box-shadow:0 0 8px #ff5c8a"></span>
       <span class="rt-title">DIRECT REGION LOCK</span>
+      <span class="xp-badge" title="Experimental — firewall-based region switching. Works, but still being hardened; use the VPN route for the most reliable switch.">EXPERIMENTAL</span>
       <span class="sc-sub">force a region, no VPN</span>
       <span class="sc-spacer"></span>
       <select class="set-select" id="rlRegion" title="the ONE region to keep open — everything else is blocked"></select>
@@ -1380,6 +1392,22 @@
     </div>
     <div class="sc-note">Open FragPunk's <b>Server</b> menu (region picker), then hit Read — I OCR the region/ping list FragPunk hides in a clunky modal and keep it here, both <b>direct</b> and <b>via VPN</b>. You queue through a VPN region to find matches faster; this is the ping you trade for it.</div>
     <div class="srv-body" id="srvBody"><div class="an-empty">No reading yet. Open the in-game Server menu and hit “Read in-game pings”.</div></div>
+  </div>
+
+  <!-- OPTIONAL VPN CONFIGS: get a free WireGuard config + one-click import -->
+  <div class="route-panel" id="vpnConfigPanel">
+    <div class="rt-head">
+      <span class="sc-dot" style="background:#43e0ff;box-shadow:0 0 8px #43e0ff"></span>
+      <span class="rt-title">VPN CONFIGS</span>
+      <span class="sc-sub">optional · only to improve ping to a far region</span>
+      <span class="sc-spacer"></span>
+      <button class="mini-btn" id="vpnGuideBtn" title="How to get a free WireGuard config">Get a free config</button>
+      <button class="mini-btn" id="vpnImportBtn" title="Pick .conf file(s) to import">Import .conf…</button>
+      <button class="mini-btn" id="vpnOpenDirBtn" title="Open the configs folder">Open folder</button>
+      <input type="file" id="vpnConfFile" accept=".conf,.txt" multiple style="display:none">
+    </div>
+    <div class="sc-note">You don't need a VPN: region <b>ping</b> works for everyone and <b>region-lock</b> switches region with no config. A WireGuard VPN only helps <b>improve</b> ping to a <b>far</b> region. Drop in a <b>.conf</b> from any provider — <b>ProtonVPN has a free tier</b> — or hit <b>Get a free config</b> for the steps.</div>
+    <div class="sc-note" id="vpnImportMsg" style="color:var(--cyan)"></div>
   </div>
 
   <div class="regions" id="regionsGrid"><div class="an-empty">Loading regions &amp; pings…</div></div>
@@ -2019,6 +2047,27 @@
       </div>
     </div>
 
+  </div>
+</div>
+
+<!-- Free WireGuard config guide (optional VPN routing) -->
+<div id="vpnGuideOv" class="vpn-guide-ov" style="display:none">
+  <div class="vpn-guide-box">
+    <div class="vpn-guide-eyebrow">Optional · VPN routing</div>
+    <div class="vpn-guide-title">Get a free WireGuard config</div>
+    <div class="vpn-guide-sub">You only need this to <b>improve ping to a far region</b>. For your normal region, <b>ping</b> and <b>region-lock</b> already work with no VPN. Any provider's WireGuard <b>.conf</b> works — here's a free route:</div>
+    <ol class="vpn-guide-steps">
+      <li>Create a <b>free ProtonVPN</b> account at <span class="vpn-guide-url">protonvpn.com</span> (the free tier includes WireGuard; server choice is limited on free).</li>
+      <li>In your Proton account, open <b>Downloads → WireGuard configuration</b>, pick a platform (Windows) and a server, and <b>download</b> the <b>.conf</b> file.</li>
+      <li>Back here, hit <b>Import .conf…</b> and select the file(s). Name them with a region code if you like (e.g. <i>US-NY.conf</i>, <i>DE.conf</i>) — the app maps them to regions automatically.</li>
+      <li>The region cards light up with a <b>Connect</b> button. That's it.</li>
+    </ol>
+    <div class="vpn-guide-note">Prefer another provider (Mullvad, IVPN, etc.)? Their WireGuard <b>.conf</b> files import the same way. Fragnetic never sees your VPN credentials — the file stays on your PC.</div>
+    <div class="vpn-guide-actions">
+      <button class="mini-btn" id="vpnGuideImport">Import .conf…</button>
+      <button class="mini-btn" id="vpnGuideOpen">Open configs folder</button>
+      <button class="mini-btn" id="vpnGuideClose">Close</button>
+    </div>
   </div>
 </div>
 
@@ -3426,7 +3475,7 @@ async function showGetStarted(){
   const steps=[
     {n:'1', t:'Check your PC is ready',      d:pcLine,  ok:(!sc||!sc.ok?null:ready), btn:'View',     act:'sc'},
     {n:'2', t:'Get your AI models',          d:mdlLine, ok:(missMB?false:true),      btn:(missMB?'Get models':'Done ✓'), act:'dl'},
-    {n:'3', t:'Region routing (optional)',   d:'Fragnetic pings every region and shows your best one. To route through a VPN, drop in a WireGuard .conf — or skip; ping + region-lock work without it.', ok:null, btn:'Open', act:'route'},
+    {n:'3', t:'Region routing (optional)',   d:'Fragnetic pings every region with zero setup. Want lower ping to a far region? Add a WireGuard VPN — there\'s a built-in "get a free config" guide. Totally optional.', ok:null, btn:'Open', act:'route'},
     {n:'4', t:'Learn where everything lives', d:'Take the 30-second guided tour of every tab.', ok:null, btn:'Tour', act:'tour'},
   ];
   const ov=document.createElement('div'); ov.id='gsOv';
@@ -4958,6 +5007,41 @@ async function rlClear(){
   const p=document.getElementById('rlPreview'); if(p)p.addEventListener('click',rlPreview);
   const a=document.getElementById('rlApply'); if(a)a.addEventListener('click',rlApply);
   const c=document.getElementById('rlClear'); if(c)c.addEventListener('click',rlClear);
+})();
+
+// ----- optional VPN configs: free-config guide + one-click .conf import -----
+function _vpnGuide(show){ const o=document.getElementById('vpnGuideOv'); if(o)o.style.display=show?'flex':'none'; }
+async function _vpnOpenDir(){
+  try{ const j=await (await fetch(API+'/api/configs/open',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).json();
+    toast(j.ok?'Opened configs folder':(j.message||'could not open folder'), j.ok?'ok':'err');
+  }catch(e){ toast('could not open folder','err'); }
+}
+function _vpnPickFiles(){ const inp=document.getElementById('vpnConfFile'); if(inp)inp.click(); }
+async function _vpnImportFiles(fileList){
+  const files=Array.from(fileList||[]); if(!files.length)return;
+  const msg=document.getElementById('vpnImportMsg'); if(msg)msg.textContent='Importing '+files.length+' file(s)…';
+  const payload=[];
+  for(const f of files){
+    try{ payload.push({name:f.name, content:await f.text()}); }catch(e){}
+  }
+  try{
+    const j=await (await fetch(API+'/api/configs/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({files:payload})})).json();
+    const nAdd=(j.added||[]).length, nSkip=(j.skipped||[]).length;
+    if(msg)msg.textContent = nAdd? ('Imported '+nAdd+' config'+(nAdd>1?'s':'')+(nSkip?(' · skipped '+nSkip):'')+'. Regions updated.')
+                                   : ('Nothing imported'+(nSkip?(' · '+nSkip+' skipped (not WireGuard .conf)'):'')+'.');
+    toast(nAdd?('Imported '+nAdd+' config'+(nAdd>1?'s':'')):'No valid .conf files', nAdd?'ok':'err');
+    if(nAdd){ try{ await loadRegions(); }catch(e){} }
+  }catch(e){ if(msg)msg.textContent='Import failed.'; toast('import failed','err'); }
+}
+(function wireVpnConfigs(){
+  const g=document.getElementById('vpnGuideBtn'); if(g)g.addEventListener('click',()=>_vpnGuide(true));
+  const gc=document.getElementById('vpnGuideClose'); if(gc)gc.addEventListener('click',()=>_vpnGuide(false));
+  const go=document.getElementById('vpnGuideOpen'); if(go)go.addEventListener('click',_vpnOpenDir);
+  const gi=document.getElementById('vpnGuideImport'); if(gi)gi.addEventListener('click',_vpnPickFiles);
+  const ib=document.getElementById('vpnImportBtn'); if(ib)ib.addEventListener('click',_vpnPickFiles);
+  const od=document.getElementById('vpnOpenDirBtn'); if(od)od.addEventListener('click',_vpnOpenDir);
+  const inp=document.getElementById('vpnConfFile'); if(inp)inp.addEventListener('change',e=>{ _vpnImportFiles(e.target.files); e.target.value=''; });
+  const ov=document.getElementById('vpnGuideOv'); if(ov)ov.addEventListener('click',e=>{ if(e.target===ov)_vpnGuide(false); });
 })();
 async function rtConnectCfg(name){
   try{ const j=await (await fetch(API+'/api/connect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({config:name})})).json();
