@@ -1370,7 +1370,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "20.18"   # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "20.19"   # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 # Lemon Squeezy checkout link (the app's Buy/Unlock buttons open this in the system
 # browser). Get it from your LS dashboard -> Products -> "Share" / checkout link.
@@ -2813,6 +2813,115 @@ def _reconcile_startup():
             start_with_windows(bool(get_setting("startWithWindows", False)))
     except Exception:
         pass
+
+
+def _webview2_version():
+    """Installed Edge WebView2 Runtime version (the app's window backend), or None if absent."""
+    if os.name != "nt":
+        return None
+    try:
+        import winreg
+        guid = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
+        for hive in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+            for sub in (r"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\%s" % guid,
+                        r"SOFTWARE\Microsoft\EdgeUpdate\Clients\%s" % guid):
+                try:
+                    with winreg.OpenKey(hive, sub) as k:
+                        v, _ = winreg.QueryValueEx(k, "pv")
+                        if v and v != "0.0.0.0":
+                            return v
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return None
+
+
+def _free_disk_gb():
+    try:
+        base = STATE.get("configs_dir")
+        return round(shutil.disk_usage(str((base.parent if base else SCRIPT_DIR))).free / (1024 ** 3), 1)
+    except Exception:
+        return None
+
+
+def system_check():
+    """First-run 'will this run well on MY machine?' report. Reuses the hardware detect + model
+    recommender and checks the runtime pieces (WebView2, WireGuard, ffmpeg encoder, disk, admin,
+    OS). Returns per-item {label,status,detail} + an overall verdict -- so a buyer sees what's
+    supported up front, with graceful notes where something's missing."""
+    items = []
+    def add(label, status, detail):
+        items.append({"label": label, "status": status, "detail": detail})
+    # OS
+    try:
+        wv = sys.getwindowsversion() if os.name == "nt" else None
+        okos = bool(wv and wv.major >= 10)
+        add("Windows 10/11 (x64)", "good" if okos else "warn",
+            ("Windows %d, build %d" % (wv.major, wv.build)) if wv else platform.platform())
+    except Exception:
+        add("Windows 10/11 (x64)", "warn", platform.system())
+    # GPU + recommended coach model
+    prof = {}
+    try:
+        prof = (fragroute_hardware.detect() if fragroute_hardware else {}) or {}
+    except Exception:
+        prof = {}
+    vram = prof.get("bestVramGB") or 0
+    gpus = ", ".join(g.get("name", "GPU") for g in (prof.get("gpus") or [])) or "none detected"
+    rec = {}
+    try:
+        rec = (fragroute_setup.recommend(prof) if fragroute_setup else {}) or {}
+    except Exception:
+        rec = {}
+    modelname = {"llm_smart": "14B smart coach", "llm_mid": "Phi-3.5 coach",
+                 "llm_fast": "1.5B coach (CPU-friendly)"}.get(rec.get("smartLlm"), rec.get("smartLlm") or "a fit model")
+    add("Graphics / AI model", "good" if vram else "warn",
+        "%s%s -> %s" % (gpus, (" (%dGB)" % vram if vram else ""), modelname))
+    # RAM
+    ram = prof.get("ramGB") or 0
+    add("Memory", "good" if ram >= 8 else "warn", ("%dGB RAM" % ram) if ram else "unknown")
+    # WebView2
+    wvv = _webview2_version()
+    add("App window (WebView2)", "good" if wvv else "warn",
+        ("Edge WebView2 %s" % wvv) if wvv else "not found -- the app opens in your browser instead")
+    # Recording
+    capok, enc = False, "software"
+    try:
+        pr = (fragroute_capture.probe() if fragroute_capture else {}) or {}
+        capok = bool(pr.get("ok"))
+        enc = (pr.get("nvenc") or pr.get("hw") or ["software"])[0]
+    except Exception:
+        pass
+    add("Recording", "good" if capok else "warn",
+        ("ready (%s encode)" % enc) if capok else "ffmpeg/encoder not ready")
+    # WireGuard (optional)
+    wg = False
+    try:
+        wg = bool(find_wireguard()[0])
+    except Exception:
+        pass
+    add("VPN routing (WireGuard)", "good" if wg else "info",
+        "installed -- region routing available" if wg else "optional -- not installed; ping + region-lock still work")
+    # Admin
+    adm = False
+    try:
+        adm = is_admin()
+    except Exception:
+        pass
+    add("Admin rights", "good" if adm else "warn",
+        "elevated -- full network features" if adm else "not elevated -- some features need admin")
+    # Disk
+    free = _free_disk_gb()
+    add("Free disk (for models)", "good" if (free is None or free >= 10) else "warn",
+        ("%sGB free" % free) if free is not None else "unknown")
+    bad = sum(1 for i in items if i["status"] == "bad")
+    warn = sum(1 for i in items if i["status"] == "warn")
+    return {"ok": True, "ready": bad == 0, "warnings": warn, "items": items,
+            "recommendedKeys": rec.get("recommendedKeys", []),
+            "summary": ("Your PC is fully ready." if bad == 0 and warn == 0 else
+                        ("Ready to run -- %d thing(s) to note below." % warn if bad == 0 else
+                         "Some requirements need attention."))}
 
 
 def active_server_info():
@@ -8733,6 +8842,13 @@ class Handler(BaseHTTPRequestHandler):
             if fragroute_hardware is None:
                 return self._json({"profile": None, "capabilities": [], "disabled": True})
             return self._json(fragroute_hardware.status())
+
+        if path == "/api/syscheck":
+            # first-run readiness: OS, GPU->model, WebView2, recording, WireGuard, admin, disk
+            try:
+                return self._json(system_check())
+            except Exception as e:
+                return self._json({"ok": False, "error": str(e), "items": []})
 
         if path == "/api/weaponskins":
             # SHIPPED skin catalog + the customer's own uploads, each flagged owned/not

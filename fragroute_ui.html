@@ -1099,6 +1099,19 @@
   .pane-lock-btn.ghost{border-color:var(--border,#2a2838);background:transparent;color:var(--text-dim,#cfc9de)}
   .pane-lock-foot{margin-top:12px;font-size:11px;color:var(--text-mute,#9aa)}
   /* hardware / compatibility panel */
+  .syscheck-card{border:1px solid var(--border);border-radius:9px;padding:10px 12px;margin:8px 0 10px;background:rgba(255,255,255,.02)}
+  .syscheck-verdict{font-size:13px;font-weight:600;padding:7px 10px;border-radius:7px;margin-bottom:8px}
+  .syscheck-verdict.ok{background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.35);color:#6ee7b7}
+  .syscheck-verdict.warn{background:rgba(251,191,36,.10);border:1px solid rgba(251,191,36,.32);color:#fcd34d}
+  .syscheck-verdict.bad{background:rgba(248,113,113,.10);border:1px solid rgba(248,113,113,.32);color:#fca5a5}
+  .syscheck-items{display:flex;flex-direction:column;gap:1px}
+  .syscheck-item{display:flex;align-items:flex-start;gap:9px;padding:6px 2px;border-bottom:1px solid rgba(255,255,255,.05);font-size:12.5px}
+  .syscheck-item:last-child{border-bottom:none}
+  .syscheck-item .sc-dot{flex:0 0 auto;width:9px;height:9px;border-radius:50%;margin-top:4px}
+  .syscheck-item .sc-dot.good{background:#34d399}.syscheck-item .sc-dot.warn{background:#fbbf24}
+  .syscheck-item .sc-dot.bad{background:#f87171}.syscheck-item .sc-dot.info{background:#60a5fa}
+  .syscheck-item .sc-label{flex:0 0 150px;color:var(--text)}
+  .syscheck-item .sc-detail{color:var(--muted);flex:1}
   .hw-specs{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0 6px}
   .hw-chip{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:7px;padding:6px 10px;font-size:12px;color:var(--text)}
   .hw-chip b{color:var(--cyan)}
@@ -1696,8 +1709,14 @@
     </div>
     <div class="ai-note">What's ready on this PC. Green = good · amber = optional piece missing (with the fix). Missing pieces just disable their own feature.</div>
 
-    <div class="section-title" style="margin-top:6px"><span>🖥️ Your PC &amp; compatibility</span></div>
+    <div class="section-title" style="margin-top:6px"><span>🖥️ Your PC &amp; compatibility</span>
+      <div class="right"><button class="mini-btn" id="sysCheckBtn">↻ Re-run system check</button></div>
+    </div>
     <div class="ai-note">Detected automatically — whether each feature will run well on <i>your</i> hardware.</div>
+    <div id="sysCheckCard" class="syscheck-card" style="display:none">
+      <div id="sysCheckVerdict" class="syscheck-verdict">Checking your system…</div>
+      <div id="sysCheckItems" class="syscheck-items"></div>
+    </div>
     <div id="hwSpecs" class="hw-specs">checking hardware…</div>
     <div id="hwCompat" class="set-list"></div>
 
@@ -5667,11 +5686,31 @@ async function loadHardware(){
     `<div class="hw-cap"><span class="hw-dot ${c.level}"></span><div><span class="lab">${_esc(c.label)}</span><span class="why">${_esc(c.why)}</span></div></div>`).join('');
 }
 
+// ===================== SYSTEM CHECK (first-run readiness) =====================
+async function loadSysCheck(){
+  const card=document.getElementById('sysCheckCard');
+  const vd=document.getElementById('sysCheckVerdict'), it=document.getElementById('sysCheckItems');
+  if(!card||!vd||!it)return;
+  card.style.display='';
+  vd.className='syscheck-verdict'; vd.textContent='Checking your system…'; it.innerHTML='';
+  let d; try{ d=await (await fetch(API+'/api/syscheck')).json(); }
+  catch(e){ vd.textContent='System check unavailable.'; return; }
+  if(!d||!d.ok){ vd.textContent='System check unavailable'+(d&&d.error?': '+_esc(d.error):'.'); return; }
+  vd.classList.add(d.ready?(d.warnings?'warn':'ok'):'bad');
+  vd.textContent=(d.ready?(d.warnings?'✓ ':'✓ '):'⚠ ')+(d.summary||'');
+  it.innerHTML=(d.items||[]).map(i=>
+    `<div class="syscheck-item"><span class="sc-dot ${_esc(i.status)}"></span>`+
+    `<span class="sc-label">${_esc(i.label)}</span><span class="sc-detail">${_esc(i.detail)}</span></div>`).join('');
+  try{ localStorage.setItem('fn_syscheck_seen','1'); }catch(e){}
+}
+
 // ===================== SETUP / READINESS =====================
 let _setWired=false, _setPoll=null;
 async function setupLoad(){
   loadHardware();
+  loadSysCheck();
   if(!_setWired){ _setWired=true;
+    document.getElementById('sysCheckBtn')?.addEventListener('click',loadSysCheck);
     document.getElementById('setRefresh')?.addEventListener('click',setupLoad);
     document.getElementById('setTour')?.addEventListener('click',()=>{ try{startTour();}catch(e){} });
     document.getElementById('dataExport')?.addEventListener('click', async ()=>{

@@ -251,12 +251,26 @@ def test_video_faststart():
           "shutil.copy2(concat, out)" not in src)
 
 
+# --- 17) first-run system check aggregates readiness items with per-item verdicts ------------
+def test_syscheck():
+    import fragroute as F
+    r = F.system_check()
+    check("syscheck: ok + items list", r.get("ok") is True and isinstance(r.get("items"), list) and len(r["items"]) >= 6)
+    check("syscheck: every item has label/status/detail",
+          all(i.get("label") and i.get("status") in ("good", "warn", "bad", "info") and "detail" in i for i in r["items"]))
+    labels = " ".join(i["label"].lower() for i in r["items"])
+    check("syscheck: covers the core surfaces (webview2, recording, wireguard, admin, disk)",
+          all(k in labels for k in ("webview2", "recording", "wireguard", "admin", "disk")))
+    check("syscheck: ready reflects zero bad items",
+          r.get("ready") == (sum(1 for i in r["items"] if i["status"] == "bad") == 0))
+
+
 def main():
     for t in (test_atomic_write, test_host_allowlist, test_prompt_injection_clause,
               test_live_mode_gate, test_proc_job, test_regionlock_sweep, test_capture_modules,
               test_license_revoke, test_public_ip, test_ver_tuple, test_subprocess_decode_safe,
               test_ollama_backend, test_semantic_rag, test_split_tunnel_conf, test_qol,
-              test_video_faststart):
+              test_video_faststart, test_syscheck):
         print("[%s]" % t.__name__)
         try:
             t()

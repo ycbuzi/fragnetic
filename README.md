@@ -21,7 +21,7 @@ window that sits next to the game.
 | **Recording & review** | Automatic gameplay capture (rolling buffer + full-match), **auto-highlights** (it finds your action moments and stitches a montage), and AI review of your clips. Hardware-accelerated on NVIDIA, AMD, and Intel GPUs. |
 | **Region intelligence** | Measures your **true ping to every region** and shows which server region you're actually playing on — so you can pick the best region in-game with real numbers, not guesses. Optional **VPN region routing** with a **FragPunk-only split tunnel** (only the game rides the VPN; your browser/Discord stay full-speed) and a no-VPN **region lock**. One-click **connect the best region**, plus a built-in **VPN verifier** (real exit IP + a live check that the tunnel is actually carrying traffic). |
 | **AI image tools** | Local image generation (Pro). |
-| **Locker & more** | Auto-cropped skin gallery, per-lancer profiles, health diagnostics. |
+| **Locker & more** | Auto-cropped skin gallery, per-lancer profiles, health diagnostics, and a first-run **System Check** (GPU→recommended model, WebView2, recording encoder, WireGuard, disk) so you know what your PC supports before you commit. |
 
 **Free to try** with a 14-day Pro preview. Pro features unlock with a license key.
 
