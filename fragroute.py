@@ -1370,7 +1370,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "20.20"   # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "20.21"   # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 # Lemon Squeezy checkout link (the app's Buy/Unlock buttons open this in the system
 # browser). Get it from your LS dashboard -> Products -> "Share" / checkout link.
@@ -4696,6 +4696,7 @@ DEFAULT_SETTINGS = {
     "startWithWindows": False,      # QoL: launch Fragnetic at logon (scheduled task, no UAC prompt)
     # --- onboarding ---
     "welcomeDone": False,           # first-login 'Make it yours' wallpaper setup shown once (persisted so it never re-pops)
+    "getStartedDone": False,        # first-run 'Getting Started' setup checklist shown once (PC check, models, routing, tour)
     "tourDone": False,              # first-login guided app tour offered once
     # --- YOLO training data ---
     "autoHarvest": True,            # auto-import match recordings into the YOLO dataset (ADMIN-only at runtime)

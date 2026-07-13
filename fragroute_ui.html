@@ -1708,7 +1708,7 @@
   <!-- ===================== SETUP PANE ===================== -->
   <div class="tab-pane" data-pane="setup">
     <div class="section-title"><span>🧩 Setup &amp; Readiness</span>
-      <div class="right"><button class="mini-btn" id="setTour" title="Replay the guided app tour">🧭 Tour</button><span id="setReady" class="ai-badge">—</span><button class="mini-btn" id="setRefresh">↻</button></div>
+      <div class="right"><button class="mini-btn" id="setGetStarted" title="Reopen the first-run setup checklist">🚀 Getting started</button><button class="mini-btn" id="setTour" title="Replay the guided app tour">🧭 Tour</button><span id="setReady" class="ai-badge">—</span><button class="mini-btn" id="setRefresh">↻</button></div>
     </div>
     <div class="ai-note">What's ready on this PC. Green = good · amber = optional piece missing (with the fix). Missing pieces just disable their own feature.</div>
 
@@ -2133,7 +2133,8 @@ const SETTINGS_DEFAULTS = {
   autoCapture:true, gamePollSeconds:6, pauseDetectionWhenIdle:false, suggestBetterRoute:true,
   newsAutoRefreshSeconds:0, newsSources:'both', newsOpenIn:'inapp', newsCount:12,
   autoStartTimerOnConnect:true, minLogSeconds:3,
-  theme:'pink', compact:false, lite:true, clock24h:true, defaultTab:'routing', lang:'auto', welcomeDone:false
+  theme:'pink', compact:false, lite:true, clock24h:true, defaultTab:'routing', lang:'auto', welcomeDone:false,
+  getStartedDone:false
 };
 let SETTINGS = {...SETTINGS_DEFAULTS};
 
@@ -3362,6 +3363,8 @@ async function maybeWelcome(){
   try{
     if(!window._SETTINGS_LOADED) return;               // wait for the persisted welcomeDone (avoid popping on the default)
     if(!SETTINGS || SETTINGS.welcomeDone) return;
+    if(!SETTINGS.getStartedDone) return;               // Getting Started comes first; it hands off to this
+    if(document.getElementById('gsOv')) return;         // never stack on top of the Getting Started checklist
     const g=document.getElementById('authGate'); if(g && g.style.display!=='none') return;   // only once logged in (gate hidden)
     // If the user has ALREADY set a wallpaper, they've customized before -> mark done and
     // never show the onboarding (covers existing users from before this feature existed).
@@ -3374,6 +3377,85 @@ async function maybeWelcome(){
     setTimeout(()=>{ try{ if(!SETTINGS.welcomeDone) showWelcomeSetup(); }catch(e){} }, 450);
   }catch(e){}
 }
+// ---- first-run "Getting Started" checklist (what to actually DO to set up) ----
+// The tour shows WHERE things are; this shows the concrete setup steps a new buyer
+// must take — is my PC ready, get the AI models, optional VPN, then learn the layout.
+// Pulls live status from /api/syscheck + /api/setup/models so each step is real.
+async function maybeGetStarted(){
+  try{
+    if(!window._SETTINGS_LOADED) return;
+    if(!SETTINGS || SETTINGS.getStartedDone) return;
+    const g=document.getElementById('authGate'); if(g && g.style.display!=='none') return;   // only once past login
+    // existing users (already through the old wallpaper onboarding) shouldn't be re-onboarded
+    if(SETTINGS.welcomeDone){ SETTINGS.getStartedDone=true; try{saveSetting('getStartedDone',true);}catch(e){} return; }
+    setTimeout(()=>{ try{ if(!SETTINGS.getStartedDone) showGetStarted(); }catch(e){} }, 400);
+  }catch(e){}
+}
+function _gsFinish(){
+  try{ const ov=document.getElementById('gsOv'); if(ov)ov.remove(); }catch(e){}
+  SETTINGS.getStartedDone=true; try{saveSetting('getStartedDone',true);}catch(e){}
+  // hand off to the cosmetic "make it yours" wallpaper picker as the friendly second step
+  try{ if(typeof maybeWelcome==='function') maybeWelcome(); }catch(e){}
+}
+function _gsRow(step){
+  const dot = step.ok===true ? '<span style="color:#34d399">●</span>'
+            : step.ok===false ? '<span style="color:#fbbf24">●</span>'
+            : '<span style="color:#60a5fa">○</span>';
+  return '<div style="display:flex;align-items:flex-start;gap:12px;padding:11px 2px;border-bottom:1px solid rgba(255,255,255,.06)">'
+    +'<div style="font-size:15px;line-height:1.3">'+dot+'</div>'
+    +'<div style="flex:1">'
+      +'<div style="font-family:Rajdhani,sans-serif;font-size:15px;font-weight:700;color:var(--text,#eef0f5)">'+step.n+'. '+step.t+'</div>'
+      +'<div style="font-family:Rajdhani,sans-serif;font-size:13px;color:var(--text-dim,#9aa0ad);line-height:1.45">'+step.d+'</div>'
+    +'</div>'
+    +'<button data-gsact="'+step.act+'" style="flex:none;align-self:center;border-radius:8px;padding:7px 14px;font-family:\'JetBrains Mono\',monospace;font-size:10.5px;letter-spacing:.06em;cursor:pointer;border:1px solid var(--cyan,#2ff0d4);background:rgba(47,240,212,.10);color:var(--cyan,#2ff0d4)">'+step.btn+'</button>'
+  +'</div>';
+}
+async function showGetStarted(){
+  if(document.getElementById('gsOv'))return;
+  let sc={}, mdl={};
+  try{ sc=await (await fetch(API+'/api/syscheck')).json(); }catch(e){}
+  try{ mdl=await (await fetch(API+'/api/setup/models')).json(); }catch(e){}
+  const ready=!!(sc&&sc.ok&&sc.ready), warns=(sc&&sc.warnings)||0;
+  const pcLine = (!sc||!sc.ok) ? 'Run a quick check of your PC.'
+              : ready ? (warns? ('Ready to run — '+warns+' thing'+(warns>1?'s':'')+' to note.') : 'Your PC is fully ready. ✓')
+                      : 'Some requirements need attention — see what.';
+  // prefer the set RECOMMENDED for this GPU (not every model) — that's what a new user needs
+  const missMB=(mdl&&(mdl.recMissingMB!=null?mdl.recMissingMB:mdl.missingMB))||0;
+  const mdlLine = missMB ? ('Download the ~'+(missMB/1024).toFixed(1)+' GB of AI models that fit your GPU. Runs in the background.')
+                         : 'The AI models for your GPU are ready. ✓';
+  const steps=[
+    {n:'1', t:'Check your PC is ready',      d:pcLine,  ok:(!sc||!sc.ok?null:ready), btn:'View',     act:'sc'},
+    {n:'2', t:'Get your AI models',          d:mdlLine, ok:(missMB?false:true),      btn:(missMB?'Get models':'Done ✓'), act:'dl'},
+    {n:'3', t:'Region routing (optional)',   d:'Fragnetic pings every region and shows your best one. To route through a VPN, drop in a WireGuard .conf — or skip; ping + region-lock work without it.', ok:null, btn:'Open', act:'route'},
+    {n:'4', t:'Learn where everything lives', d:'Take the 30-second guided tour of every tab.', ok:null, btn:'Tour', act:'tour'},
+  ];
+  const ov=document.createElement('div'); ov.id='gsOv';
+  ov.style.cssText='position:fixed;inset:0;z-index:99500;display:flex;align-items:center;justify-content:center;background:rgba(5,5,10,.72);backdrop-filter:blur(4px);padding:20px';
+  const box=document.createElement('div');
+  box.style.cssText='background:var(--bg-2,#14131c);border:1px solid var(--cyan,#2ff0d4);border-radius:16px;box-shadow:0 24px 70px rgba(0,0,0,.6);width:min(600px,96vw);max-height:92vh;overflow:auto;padding:24px';
+  box.innerHTML='<div style="font-family:\'JetBrains Mono\',monospace;font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--cyan,#2ff0d4);margin-bottom:6px">Getting started</div>'
+    +'<div style="font-family:Rajdhani,sans-serif;font-size:23px;font-weight:700;margin-bottom:4px">Let’s get you set up</div>'
+    +'<div style="font-family:Rajdhani,sans-serif;font-size:14px;color:var(--text-dim,#9aa0ad);margin-bottom:14px;line-height:1.5">A few one-time steps. You can leave any of these for later and reopen this from <b>Setup</b>.</div>'
+    +'<div id="gsSteps">'+steps.map(_gsRow).join('')+'</div>'
+    +'<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">'
+      +'<button id="gsSkip" style="border-radius:8px;padding:9px 16px;font-family:\'JetBrains Mono\',monospace;font-size:11px;letter-spacing:.06em;cursor:pointer;border:1px solid var(--border,#2a2838);background:transparent;color:var(--text-dim,#cfc9de)">I’ll explore on my own</button>'
+      +'<button id="gsDone" style="border-radius:8px;padding:9px 22px;font-family:\'JetBrains Mono\',monospace;font-size:11px;letter-spacing:.06em;font-weight:700;cursor:pointer;border:1px solid var(--cyan,#2ff0d4);background:rgba(47,240,212,.14);color:var(--cyan,#2ff0d4)">Done</button>'
+    +'</div>';
+  ov.appendChild(box); document.body.appendChild(ov);
+  box.querySelectorAll('[data-gsact]').forEach(b=>b.addEventListener('click',()=>{
+    const act=b.getAttribute('data-gsact');
+    if(act==='tour'){ _gsFinish(); try{startTour();}catch(e){} return; }
+    _gsFinish();
+    try{
+      if(act==='sc'){ switchTab('setup'); setTimeout(()=>{ try{var e=document.getElementById('sysCheckCard'); if(typeof loadSysCheck==='function')loadSysCheck(); if(e)e.scrollIntoView({block:'center'});}catch(e){} },350); }
+      else if(act==='dl'){ switchTab('setup'); setTimeout(()=>{ try{ var e=document.getElementById('setModels'); if(e){ e.scrollIntoView({block:'center'}); e.style.transition='box-shadow .3s'; e.style.boxShadow='0 0 0 2px var(--cyan,#2ff0d4)'; setTimeout(()=>{try{e.style.boxShadow='';}catch(_){}} ,1800); } }catch(e){} },350); }
+      else if(act==='route'){ switchTab('routing'); }
+    }catch(e){}
+  }));
+  box.querySelector('#gsDone').onclick=_gsFinish;
+  box.querySelector('#gsSkip').onclick=_gsFinish;
+}
+
 // ---- guided app tour (customer onboarding; re-runnable from Setup) ----------
 const APP_TOUR=[
   {group:null,               title:'Welcome to Fragnetic',  body:'Your FragPunk companion — smart routing, a local AI coach, gameplay recording and more. Here’s a 30-second look at where everything lives. Use Next / Back, or Skip anytime.'},
@@ -4365,6 +4447,7 @@ async function loadSettings(){
   }catch(e){}
   saveSettingsCache();
   window._SETTINGS_LOADED=true;                        // real persisted values are now in SETTINGS
+  try{ if(typeof maybeGetStarted==='function') maybeGetStarted(); }catch(e){}   // first-run setup checklist (once)
   try{ if(typeof maybeWelcome==='function') maybeWelcome(); }catch(e){}   // new-user wallpaper setup (once, AFTER load)
 }
 function applySettings(){
@@ -5716,6 +5799,7 @@ async function setupLoad(){
     document.getElementById('sysCheckBtn')?.addEventListener('click',loadSysCheck);
     document.getElementById('setRefresh')?.addEventListener('click',setupLoad);
     document.getElementById('setTour')?.addEventListener('click',()=>{ try{startTour();}catch(e){} });
+    document.getElementById('setGetStarted')?.addEventListener('click',()=>{ try{ const o=document.getElementById('gsOv'); if(o)o.remove(); showGetStarted(); }catch(e){} });
     document.getElementById('dataExport')?.addEventListener('click', async ()=>{
       try{
         const d=await (await fetch(API+'/api/data/export')).json();
@@ -6121,7 +6205,7 @@ async function refreshEntitlement(){
   try{ document.body.classList.toggle('admin-mode', !!(ENT && (ENT.tier === 'admin' || ENT.disabled))); }catch(e){}
   applyFeatureLocks();
   try{ if (typeof refreshTabsForTier === 'function') refreshTabsForTier(); }catch(e){}  // show/hide dev-only tabs
-  try{ const _g2=document.getElementById('authGate'); if((!_g2||_g2.style.display==='none') && typeof maybeWelcome==='function') maybeWelcome(); }catch(e){}  // first-login wallpaper setup (once)
+  try{ const _g2=document.getElementById('authGate'); if((!_g2||_g2.style.display==='none')){ if(typeof maybeGetStarted==='function') maybeGetStarted(); if(typeof maybeWelcome==='function') maybeWelcome(); } }catch(e){}  // first-run onboarding (setup checklist, then wallpaper)
 }
 function featOn(f){ return !ENT || ENT.disabled || !(ENT.features) || ENT.features[f] !== false; }
 function applyFeatureLocks(){

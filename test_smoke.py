@@ -251,6 +251,20 @@ def test_video_faststart():
           "shutil.copy2(concat, out)" not in src)
 
 
+# --- 19) first-run Getting Started checklist wired (onboarding a new buyer through setup) ------
+def test_getting_started():
+    here = os.path.dirname(os.path.abspath(__file__))
+    html = open(os.path.join(here, "fragroute_ui.html"), encoding="utf-8").read()
+    check("getstarted: showGetStarted() overlay exists", "function showGetStarted(" in html)
+    check("getstarted: gated once via getStartedDone + auto-fires on first run",
+          "getStartedDone" in html and "maybeGetStarted" in html)
+    check("getstarted: pulls live PC + model status", "/api/syscheck" in html and "/api/setup/models" in html)
+    check("getstarted: re-runnable from Setup tab", 'id="setGetStarted"' in html)
+    check("getstarted: existing users not re-onboarded", "SETTINGS.welcomeDone){ SETTINGS.getStartedDone" in html)
+    import fragroute as F
+    check("getstarted: server default persisted", "getStartedDone" in F.DEFAULT_SETTINGS)
+
+
 # --- 18) owner/admin-only chrome must be gated (build number + dev readouts hidden from buyers) --
 def test_admin_gating():
     here = os.path.dirname(os.path.abspath(__file__))
@@ -284,7 +298,7 @@ def main():
               test_live_mode_gate, test_proc_job, test_regionlock_sweep, test_capture_modules,
               test_license_revoke, test_public_ip, test_ver_tuple, test_subprocess_decode_safe,
               test_ollama_backend, test_semantic_rag, test_split_tunnel_conf, test_qol,
-              test_video_faststart, test_syscheck, test_admin_gating):
+              test_video_faststart, test_syscheck, test_admin_gating, test_getting_started):
         print("[%s]" % t.__name__)
         try:
             t()
