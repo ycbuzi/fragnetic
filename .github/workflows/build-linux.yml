@@ -52,12 +52,14 @@ jobs:
           done
           echo "privacy check passed — no personal data in the binary"
 
-      - name: Package
+      - name: Package (binary + icon + native-app installer)
         run: |
           mkdir -p out/Fragnetic
           cp dist/Fragnetic out/Fragnetic/
+          cp assets/fragroute.png out/Fragnetic/fragnetic.png 2>/dev/null || true
+          cp linux/install.sh out/Fragnetic/install.sh
           cp README.md out/Fragnetic/README.md 2>/dev/null || true
-          chmod +x out/Fragnetic/Fragnetic
+          chmod +x out/Fragnetic/Fragnetic out/Fragnetic/install.sh
           cd out && tar -czf Fragnetic-linux-x86_64.tar.gz Fragnetic
           ls -lh Fragnetic-linux-x86_64.tar.gz
 

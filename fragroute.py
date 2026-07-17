@@ -9665,6 +9665,36 @@ class Handler(BaseHTTPRequestHandler):
 
 
 # ===========================================================================
+def _launch_ui_window(url):
+    """Open the UI as a NATIVE-feeling window.
+
+    On Linux/macOS the frozen binary has no WebView2 host, so we open the page in a
+    Chromium-based browser's CHROMELESS 'app mode' (--app=): a dedicated window with
+    NO tabs / address bar / browser chrome, its own taskbar entry, and a WM class that
+    matches the .desktop launcher's icon -- i.e. it looks and behaves like a native app,
+    not a browser tab. Falls back to a normal browser tab if no Chromium browser is found.
+    (On Windows the pywebview/WebView2 host window is used instead -- see fragroute_app.py.)"""
+    if OS != "Windows":
+        for b in ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable",
+                  "brave-browser", "microsoft-edge", "microsoft-edge-stable", "vivaldi-stable"):
+            exe = shutil.which(b)
+            if not exe:
+                continue
+            try:
+                subprocess.Popen(
+                    [exe, "--app=" + url, "--new-window",
+                     "--class=Fragnetic", "--name=fragnetic",
+                     "--no-first-run", "--no-default-browser-check"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return
+            except Exception:
+                pass
+    try:
+        webbrowser.open(url)      # fallback: default browser (or Windows path)
+    except Exception:
+        pass
+
+
 # MAIN
 # ===========================================================================
 def main():
@@ -9867,7 +9897,7 @@ def main():
     print("=" * 64)
 
     if not args.no_browser:
-        threading.Timer(0.6, lambda: webbrowser.open(url)).start()
+        threading.Timer(0.6, lambda: _launch_ui_window(url)).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -79,11 +79,17 @@ one-file exe yourself, run **`build_exe.bat`** on Windows (produces `dist\Fragne
 ## Running on Linux
 
 FragPunk is a Windows game (Linux via Proton), so Fragnetic is **Windows-first** — but there's a
-**Linux build** too. Grab
+native **Linux build** too. Grab
 [`Fragnetic-linux-x86_64.tar.gz`](https://github.com/ycbuzi/fragnetic/releases/latest/download/Fragnetic-linux-x86_64.tar.gz),
-`tar -xzf` it, and run `./Fragnetic` — it starts a local server and opens your browser (no
-WebView2 window on Linux). Or run **from source**: `python fragroute.py` (Python 3.11+). The
-Linux binary is built + smoke-tested in CI and carries **no personal data**.
+extract it, and run **`./install.sh`** — that registers Fragnetic in your **app menu with an
+icon** and launches it in its **own chromeless window** (it looks like a native app, not a
+browser tab). For the native window, have a Chromium-based browser installed
+(`chromium` / `google-chrome` / `brave` / `microsoft-edge`); without one it opens a normal tab.
+
+Prefer no install? Just run `./Fragnetic`, or from source: `python fragroute.py` (Python 3.11+).
+The binary is built + smoke-tested in CI and carries **no personal data**. Windows-only features
+(recording, WASAPI audio, firewall region-lock) aren't available on Linux and degrade gracefully;
+the UI, region ping, VPN routing (`wg-quick`), and the coach (via Ollama) all work.
 
 What works on Linux: the UI, region **ping**, the **AI coach**, and **VPN routing via
 `wg-quick`** (`apt/dnf install wireguard-tools`). What's Windows-only for now and degrades
