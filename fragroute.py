@@ -9683,7 +9683,10 @@ def main():
     # Auto-elevation: request admin/root up front so the user doesn't have to open
     # an elevated terminal. Skipped for --dry-run (never touches the network),
     # when the user opts out with --no-elevate, or if we're already elevated.
-    if not args.dry_run and not args.no_elevate and not is_admin():
+    # WINDOWS ONLY: on Linux we do NOT demand `sudo` on every launch -- the UI, region
+    # ping and coach all run fine as the user; only VPN tunnel switching / firewall
+    # region-lock need root, and those report "re-run with sudo" if invoked without it.
+    if OS == "Windows" and not args.dry_run and not args.no_elevate and not is_admin():
         if relaunch_elevated(already_relaunched=args.elevated):
             return  # an elevated instance is taking over (or the attempt failed)
 

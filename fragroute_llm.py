@@ -367,15 +367,18 @@ def vision_available():
 
 
 def find_binary():
-    """Prefer the Vulkan (GPU) server, fall back to CPU. Returns (path, kind)."""
+    """Prefer the Vulkan (GPU) server, fall back to CPU. Returns (path, kind).
+    OS-aware: 'llama-server.exe' on Windows, 'llama-server' on Linux/macOS -- so a
+    Linux user can drop in a native llama-server (or just use Ollama for the coach)."""
     d = _base_dir()
+    _srv = "llama-server.exe" if os.name == "nt" else "llama-server"
     for sub, kind in (("vk", "vulkan"), ("cpu", "cpu")):
         sd = d / sub
         if sd.exists():
-            for p in sd.rglob("llama-server.exe"):
+            for p in sd.rglob(_srv):
                 return str(p), kind
     if d.exists():
-        for p in d.rglob("llama-server.exe"):
+        for p in d.rglob(_srv):
             return str(p), "unknown"
     return None, None
 
