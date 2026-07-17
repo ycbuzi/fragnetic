@@ -4,9 +4,9 @@ A **local companion app for [FragPunk](https://fragpunk.com)** that runs entirel
 PC. It gives you a private AI coach, records and reviews your matches, and tells you the
 real ping to every region so you can pick the best one — no cloud account required to try it.
 
-> **Download:** [**Fragnetic-Setup.zip**](https://github.com/ycbuzi/fragnetic/releases/latest/download/Fragnetic-Setup.zip)
-> · Site: [ycbuzi.github.io/fragnetic](https://ycbuzi.github.io/fragnetic/)
-> · ▶ **[Watch the 2-min demo](https://ycbuzi.github.io/fragnetic/demo.mp4)** (real first-time-customer walkthrough)
+> **🪟 Windows:** [**Download Fragnetic-Setup.zip**](https://github.com/ycbuzi/fragnetic/releases/latest/download/Fragnetic-Setup.zip) — unzip, run `Fragnetic.exe`.
+> **🐧 Linux / other:** no binary yet — [**run from source**](#running-on-linux-from-source) (`python fragroute.py`, opens in your browser).
+> · Site: [ycbuzi.github.io/fragnetic](https://ycbuzi.github.io/fragnetic/) · ▶ **[Watch the 2-min demo](https://ycbuzi.github.io/fragnetic/demo.mp4)**
 
 It runs on **your machine** (not a browser sandbox), so it can read network state and see
 the game — but it does **not** hook, inject into, or overlay FragPunk. It's a separate
