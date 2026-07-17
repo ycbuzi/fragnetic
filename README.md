@@ -5,7 +5,7 @@ PC. It gives you a private AI coach, records and reviews your matches, and tells
 real ping to every region so you can pick the best one — no cloud account required to try it.
 
 > **🪟 Windows:** [**Download Fragnetic-Setup.zip**](https://github.com/ycbuzi/fragnetic/releases/latest/download/Fragnetic-Setup.zip) — unzip, run `Fragnetic.exe`.
-> **🐧 Linux / other:** no binary yet — [**run from source**](#running-on-linux-from-source) (`python fragroute.py`, opens in your browser).
+> **🐧 Linux:** [**Download Fragnetic-linux-x86_64.tar.gz**](https://github.com/ycbuzi/fragnetic/releases/latest/download/Fragnetic-linux-x86_64.tar.gz) — `tar -xzf`, run `./Fragnetic` (opens in your browser). Core features; [what works on Linux](#running-on-linux).
 > · Site: [ycbuzi.github.io/fragnetic](https://ycbuzi.github.io/fragnetic/) · ▶ **[Watch the 2-min demo](https://ycbuzi.github.io/fragnetic/demo.mp4)**
 
 It runs on **your machine** (not a browser sandbox), so it can read network state and see
@@ -76,12 +76,14 @@ This repo is public so it can host the [landing page](https://ycbuzi.github.io/f
 The app is a Python engine (stdlib-only server) plus a WebView2 native window. To build the
 one-file exe yourself, run **`build_exe.bat`** on Windows (produces `dist\Fragnetic.exe`).
 
-## Running on Linux (from source)
+## Running on Linux
 
-Fragnetic is **Windows-first** (the `.exe` download is Windows-only). FragPunk itself is a
-Windows game — on Linux it runs through Proton. You can run the companion **from source** on
-Linux: `python fragroute.py` (Python 3.11+), then open the printed `http://127.0.0.1:…` URL in
-your browser (there's no WebView2 window on Linux — it uses your browser).
+FragPunk is a Windows game (Linux via Proton), so Fragnetic is **Windows-first** — but there's a
+**Linux build** too. Grab
+[`Fragnetic-linux-x86_64.tar.gz`](https://github.com/ycbuzi/fragnetic/releases/latest/download/Fragnetic-linux-x86_64.tar.gz),
+`tar -xzf` it, and run `./Fragnetic` — it starts a local server and opens your browser (no
+WebView2 window on Linux). Or run **from source**: `python fragroute.py` (Python 3.11+). The
+Linux binary is built + smoke-tested in CI and carries **no personal data**.
 
 What works on Linux: the UI, region **ping**, the **AI coach**, and **VPN routing via
 `wg-quick`** (`apt/dnf install wireguard-tools`). What's Windows-only for now and degrades
