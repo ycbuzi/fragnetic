@@ -85,17 +85,16 @@ if not exist "wireguard.exe" (
     copy /y "C:\Program Files (x86)\WireGuard\wireguard.exe" "wireguard.exe" >nul
   )
 )
-REM  Bundle the current weapon-skins snapshot (from dist) so a bare exe carries
-REM  the user's skins to another computer (seeded on first run if none present).
+REM  PRIVACY: never bundle the runtime dist\fragroute_weapon_skins.json (the owner's
+REM  OWNED-skin collection) or dist\fragroute_icons.json (holds a CUSTOM wallpaper).
+REM  Those are PERSONAL and would ship to every customer. Instead bundle a sanitized
+REM  reference icons file (rank/type/preset emblems only) produced by the sanitizer.
+%PY% sanitize_ship_assets.py
 set "WS_ADD="
-if exist "dist\fragroute_weapon_skins.json" (
-  set "WS_ADD=--add-data dist\fragroute_weapon_skins.json;."
-  echo Bundling weapon-skins snapshot ^(portable to another PC^).
-)
 set "IC_ADD="
-if exist "dist\fragroute_icons.json" (
-  set "IC_ADD=--add-data dist\fragroute_icons.json;."
-  echo Bundling icons ^(rank emblems etc.^).
+if exist "ship_assets\fragroute_icons.json" (
+  set "IC_ADD=--add-data ship_assets\fragroute_icons.json;."
+  echo Bundling CLEAN reference icons ^(rank/type/presets -- no personal wallpaper^).
 )
 if exist "wireguard.exe" (
   set "WG_ADD=--add-data wireguard.exe;."

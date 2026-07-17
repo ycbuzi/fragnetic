@@ -96,3 +96,5 @@ demo_take/
 make_highlight.py
 assemble_demo.py
 demo_make.py
+ship_assets/
+release/

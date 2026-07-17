@@ -42,7 +42,10 @@ for %%D in (%MODELDIRS%) do (
 )
 
 REM --- reference asset + legal docs (safe) ---
-if exist "%SRC%\fragroute_icons.json" copy /y "%SRC%\fragroute_icons.json" "%OUT%\" >nul
+REM  icons.json: ship the SANITIZED reference file ONLY (rank/type/preset emblems).
+REM  The raw dist\fragroute_icons.json holds the owner's CUSTOM wallpaper -- never ship it.
+if not exist "ship_assets\fragroute_icons.json" python sanitize_ship_assets.py >nul 2>&1
+if exist "ship_assets\fragroute_icons.json" copy /y "ship_assets\fragroute_icons.json" "%OUT%\fragroute_icons.json" >nul
 REM Shipped skin CATALOG -- the reference gallery a customer browses + marks owned.
 REM Public game-skin images, NOT personal data (no accounts/license/history), so safe.
 if exist "%SRC%\fragroute_skins_catalog.json" copy /y "%SRC%\fragroute_skins_catalog.json" "%OUT%\" >nul
@@ -73,6 +76,8 @@ for %%P in (
 for %%D in (dataset edited configs fragroute_captures fragroute_maps) do (
   if exist "%OUT%\%%D" set "LEAK=!LEAK! %%D\"
 )
+REM the shipped icons.json must NOT carry a bare "wallpaper" slot (the owner's custom upload)
+if exist "%OUT%\fragroute_icons.json" findstr /c:"\"wallpaper\":" "%OUT%\fragroute_icons.json" >nul && set "LEAK=!LEAK! fragroute_icons.json:wallpaper"
 if defined LEAK (
   echo [X] PERSONAL DATA LEAK into release:!LEAK!
   echo     Aborting -- do NOT ship this folder.

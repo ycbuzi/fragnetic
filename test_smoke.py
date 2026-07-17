@@ -251,6 +251,27 @@ def test_video_faststart():
           "shutil.copy2(concat, out)" not in src)
 
 
+# --- 22) packaging must NEVER bundle personal data into the shipped exe/release ---------------
+def test_ship_privacy():
+    here = os.path.dirname(os.path.abspath(__file__))
+    be = open(os.path.join(here, "build_exe.bat"), encoding="utf-8", errors="replace").read()
+    check("privacy: build does NOT bundle the runtime owned-skins file",
+          "add-data dist\\fragroute_weapon_skins.json" not in be)
+    check("privacy: build does NOT bundle the raw runtime icons (custom wallpaper)",
+          "add-data dist\\fragroute_icons.json" not in be)
+    check("privacy: build bundles the SANITIZED reference icons instead",
+          "ship_assets\\fragroute_icons.json" in be and "sanitize_ship_assets.py" in be)
+    pr = open(os.path.join(here, "package_release.bat"), encoding="utf-8", errors="replace").read()
+    check("privacy: release ships sanitized icons + scans for a bare wallpaper leak",
+          "ship_assets\\fragroute_icons.json" in pr and "wallpaper" in pr)
+    # the sanitized reference file itself must never contain a bare 'wallpaper' slot
+    sp = os.path.join(here, "ship_assets", "fragroute_icons.json")
+    if os.path.exists(sp):
+        import json as _j
+        ks = (_j.load(open(sp, encoding="utf-8")).get("slots") or {})
+        check("privacy: sanitized ship icons carry no bare 'wallpaper' slot", "wallpaper" not in ks)
+
+
 # --- 21) coach must be grounded in the REAL lancer roster + forbidden from inventing names -----
 def test_coach_lancer_grounding():
     here = os.path.dirname(os.path.abspath(__file__))
@@ -327,7 +348,7 @@ def main():
               test_license_revoke, test_public_ip, test_ver_tuple, test_subprocess_decode_safe,
               test_ollama_backend, test_semantic_rag, test_split_tunnel_conf, test_qol,
               test_video_faststart, test_syscheck, test_admin_gating, test_getting_started,
-              test_vpn_accessibility, test_coach_lancer_grounding):
+              test_vpn_accessibility, test_coach_lancer_grounding, test_ship_privacy):
         print("[%s]" % t.__name__)
         try:
             t()
