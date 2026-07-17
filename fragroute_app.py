@@ -871,8 +871,12 @@ class WindowControls:
 #   2) make the inline browser an OWNED tool-window: no separate taskbar/alt-tab
 #      entry, always pinned above the app, and torn down with it.
 # ===========================================================================
-import ctypes
-from ctypes import wintypes
+try:
+    import ctypes
+    from ctypes import wintypes
+except Exception:      # non-Windows: this WebView2 host is Windows-only, but stay import-safe
+    ctypes = None
+    wintypes = None
 
 _GWL_STYLE       = -16
 _GWL_EXSTYLE     = -20

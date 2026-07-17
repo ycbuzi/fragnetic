@@ -251,6 +251,25 @@ def test_video_faststart():
           "shutil.copy2(concat, out)" not in src)
 
 
+# --- 23) Linux import-safety: no unguarded module-level Windows-only imports ------------------
+def test_linux_import_safe():
+    import glob, re as _re
+    here = os.path.dirname(os.path.abspath(__file__))
+    offenders = []
+    for path in glob.glob(os.path.join(here, "fragroute*.py")):
+        src = open(path, encoding="utf-8", errors="replace").read()
+        for m in _re.finditer(r"(?m)^(import winreg|from ctypes import wintypes|import msvcrt)\b", src):
+            # allowed only if the very lines above open a try: block (guarded import)
+            head = src[:m.start()].rstrip().splitlines()
+            guarded = bool(head) and head[-1].strip().endswith("try:")
+            if not guarded:
+                offenders.append(os.path.basename(path) + ": " + m.group(0))
+    check("linux: no UNGUARDED module-level Windows-only imports (%s)" % (offenders or "clean"),
+          not offenders)
+    check("linux: fragroute_app.py guards its ctypes/wintypes import",
+          "except Exception:" in open(os.path.join(here, "fragroute_app.py"), encoding="utf-8", errors="replace").read().split("_GWL_STYLE")[0])
+
+
 # --- 22) packaging must NEVER bundle personal data into the shipped exe/release ---------------
 def test_ship_privacy():
     here = os.path.dirname(os.path.abspath(__file__))
@@ -348,7 +367,8 @@ def main():
               test_license_revoke, test_public_ip, test_ver_tuple, test_subprocess_decode_safe,
               test_ollama_backend, test_semantic_rag, test_split_tunnel_conf, test_qol,
               test_video_faststart, test_syscheck, test_admin_gating, test_getting_started,
-              test_vpn_accessibility, test_coach_lancer_grounding, test_ship_privacy):
+              test_vpn_accessibility, test_coach_lancer_grounding, test_ship_privacy,
+              test_linux_import_safe):
         print("[%s]" % t.__name__)
         try:
             t()

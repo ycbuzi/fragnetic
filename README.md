@@ -76,6 +76,19 @@ This repo is public so it can host the [landing page](https://ycbuzi.github.io/f
 The app is a Python engine (stdlib-only server) plus a WebView2 native window. To build the
 one-file exe yourself, run **`build_exe.bat`** on Windows (produces `dist\Fragnetic.exe`).
 
+## Running on Linux (from source)
+
+Fragnetic is **Windows-first** (the `.exe` download is Windows-only). FragPunk itself is a
+Windows game — on Linux it runs through Proton. You can run the companion **from source** on
+Linux: `python fragroute.py` (Python 3.11+), then open the printed `http://127.0.0.1:…` URL in
+your browser (there's no WebView2 window on Linux — it uses your browser).
+
+What works on Linux: the UI, region **ping**, the **AI coach**, and **VPN routing via
+`wg-quick`** (`apt/dnf install wireguard-tools`). What's Windows-only for now and degrades
+gracefully: **screen recording** (uses Windows capture APIs), **game-audio capture** (WASAPI),
+the no-VPN **firewall region-lock**, and **start-with-Windows**. A native Linux build with those
+features is future work.
+
 ---
 
 ## Disclaimer
