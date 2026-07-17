@@ -361,24 +361,31 @@ def _start_wgc(ff, ring, hwnd, fps, bitrate, encoder, seg, nseg, flags):
         next_t = time.time()
         last = first        # seed with the proven first frame -> no black at clip start
         blank = b"\x00" * (w * h * 4)
-        while not stop_ev.is_set():
-            data = fragroute_wgc._grab(sess, timeout_s=interval)
-            if data is not None:
-                last = data
-            try:
-                p.stdin.write(last if last is not None else blank)
-            except (BrokenPipeError, OSError, ValueError):
-                break
-            next_t += interval
-            slp = next_t - time.time()
-            if slp > 0:
-                time.sleep(slp)
-            else:
-                next_t = time.time()   # fell behind -> don't spiral
         try:
-            p.stdin.close()            # EOF -> ffmpeg finalizes the last segment
-        except Exception:
-            pass
+            while not stop_ev.is_set():
+                try:
+                    data = fragroute_wgc._grab(sess, timeout_s=interval)
+                except Exception:
+                    data = None      # a grab hiccup must not kill the pump / hang ffmpeg
+                if data is not None:
+                    last = data
+                try:
+                    p.stdin.write(last if last is not None else blank)
+                except (BrokenPipeError, OSError, ValueError):
+                    break
+                next_t += interval
+                slp = next_t - time.time()
+                if slp > 0:
+                    time.sleep(slp)
+                else:
+                    next_t = time.time()   # fell behind -> don't spiral
+        finally:
+            # ALWAYS close stdin (EOF -> ffmpeg finalizes the last segment) even if the
+            # loop raised -- otherwise ffmpeg hangs forever waiting for input.
+            try:
+                p.stdin.close()
+            except Exception:
+                pass
 
     th = threading.Thread(target=_pump, daemon=True)
     th.start()
