@@ -3812,29 +3812,58 @@ _BROWSER_LOCK = threading.Lock()
 
 
 def _find_browser():
-    cands = [
+    """Return (path, kind) for a browser that supports an EPHEMERAL private window:
+      kind 'chromium' -> launched with a throwaway --user-data-dir
+      kind 'firefox'  -> launched with -private-window
+    Returns (None, None) if neither family is found; callers then fall back to the
+    user's DEFAULT browser via the stdlib `webbrowser` module, which works with ANY
+    browser they have (Safari, Opera, GNOME Web, Konqueror, etc.)."""
+    # --- Chromium family (Chrome / Edge / Brave / Vivaldi / Chromium) ---
+    chromium = [
         os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
         os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
         os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
         os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
         shutil.which("msedge"), shutil.which("chrome"),
     ]
-    # Linux/macOS: Chromium-based browsers use different binary names on PATH.
     for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
                  "brave-browser", "microsoft-edge", "microsoft-edge-stable", "vivaldi-stable",
                  "chrome"):
         w = shutil.which(name)
         if w:
-            cands.append(w)
-    # macOS app bundles
+            chromium.append(w)
     for p in ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
               "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-              "/Applications/Chromium.app/Contents/MacOS/Chromium"):
-        cands.append(p)
-    for c in cands:
+              "/Applications/Chromium.app/Contents/MacOS/Chromium",
+              "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"):
+        chromium.append(p)
+    for c in chromium:
         if c and Path(c).exists():
-            return c
-    return None
+            return c, "chromium"
+    # --- Firefox family (Firefox / ESR / LibreWolf / Waterfox) ---
+    firefox = [
+        os.path.expandvars(r"%ProgramFiles%\Mozilla Firefox\firefox.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\Mozilla Firefox\firefox.exe"),
+        shutil.which("firefox"), shutil.which("firefox-esr"),
+        shutil.which("librewolf"), shutil.which("waterfox"),
+        "/Applications/Firefox.app/Contents/MacOS/firefox",
+    ]
+    for c in firefox:
+        if c and Path(c).exists():
+            return c, "firefox"
+    return None, None
+
+
+def _browser_available():
+    """True if we can open a web page at all -- a browser we know how to drive, OR the
+    OS default browser (covers ANY browser the user has installed)."""
+    if _find_browser()[0]:
+        return True
+    try:
+        webbrowser.get()   # resolves the user's default browser; raises if none
+        return True
+    except Exception:
+        return False
 
 
 def _browser_normalize(url):
@@ -3871,12 +3900,11 @@ def _browser_spawn_deelevated(exe, prof, url):
 
 
 def browser_open(url):
-    """Open a URL in the ephemeral private browser. Returns {ok, url, browser}."""
-    exe = _find_browser()
-    if not exe:
-        diag("browser", False, msg="no Chrome/Chromium/Edge found")
-        return {"ok": False, "message": "No Chrome, Chromium, or Edge browser found — install one to use the in-app browser."}
+    """Open a URL in a private/ephemeral window. Works with ANY browser: Chromium
+    (throwaway profile), Firefox (private window), or — if neither is found — the
+    user's DEFAULT browser via the stdlib webbrowser module. Returns {ok, url, browser}."""
     target = _browser_normalize(url)
+    exe, kind = _find_browser()
     with _BROWSER_LOCK:
         if not (_BROWSER["dir"] and Path(_BROWSER["dir"]).exists()):
             _BROWSER["dir"] = tempfile.mkdtemp(prefix="fragroute_browser_")
@@ -3886,28 +3914,50 @@ def browser_open(url):
             except Exception:
                 pass
         prof = _BROWSER["dir"]
-        name = "Edge" if "edge" in exe.lower() else "Chrome"
-        # The app runs ELEVATED (--uac-admin); a directly-spawned browser then
-        # won't open a window. De-elevate (runas /trustlevel) so a real,
-        # connecting window appears. Fall back to a direct launch if not elevated
-        # (or if the de-elevation fails).
-        try:
-            elevated = is_admin()
-        except Exception:
-            elevated = False
-        if elevated and _browser_spawn_deelevated(exe, prof, target):
-            diag("browser", True, msg=f"opened ({name}, de-elevated)")
-            return {"ok": True, "url": target, "browser": name}
-        try:
-            p = subprocess.Popen([exe, f"--user-data-dir={prof}", "--no-first-run",
-                                  "--no-default-browser-check", "--new-window", target],
-                                 **_NO_WINDOW_KW)
-            _BROWSER["procs"].append(p)
-            diag("browser", True, msg=f"opened ({name})")
-            return {"ok": True, "url": target, "browser": name}
-        except Exception as e:
-            diag("browser", False, msg="spawn browser", exc=e)
-            return {"ok": False, "message": str(e)}
+
+        if kind == "chromium":
+            name = "Edge" if "edge" in exe.lower() else ("Brave" if "brave" in exe.lower()
+                     else ("Chromium" if "chromium" in exe.lower() else "Chrome"))
+            # The app runs ELEVATED on Windows (--uac-admin); a directly-spawned browser
+            # then won't open a window. De-elevate (runas /trustlevel) so a real window
+            # appears. Falls back to a direct launch if not elevated / de-elevation fails.
+            try:
+                elevated = is_admin()
+            except Exception:
+                elevated = False
+            if elevated and _browser_spawn_deelevated(exe, prof, target):
+                diag("browser", True, msg=f"opened ({name}, de-elevated)")
+                return {"ok": True, "url": target, "browser": name}
+            try:
+                p = subprocess.Popen([exe, f"--user-data-dir={prof}", "--no-first-run",
+                                      "--no-default-browser-check", "--new-window", target],
+                                     **_NO_WINDOW_KW)
+                _BROWSER["procs"].append(p)
+                diag("browser", True, msg=f"opened ({name})")
+                return {"ok": True, "url": target, "browser": name}
+            except Exception as e:
+                diag("browser", False, msg="spawn chromium", exc=e)   # fall through to default
+
+        elif kind == "firefox":
+            fname = "LibreWolf" if "librewolf" in exe.lower() else "Firefox"
+            try:
+                p = subprocess.Popen([exe, "-private-window", target], **_NO_WINDOW_KW)
+                _BROWSER["procs"].append(p)
+                diag("browser", True, msg=f"opened ({fname} private)")
+                return {"ok": True, "url": target, "browser": f"{fname} (private)"}
+            except Exception as e:
+                diag("browser", False, msg="spawn firefox", exc=e)    # fall through to default
+
+    # Universal fallback: the user's DEFAULT browser (any browser they have). Not a
+    # private window, but it always works if a browser exists at all.
+    try:
+        if webbrowser.open(target):
+            diag("browser", True, msg="opened (default browser)")
+            return {"ok": True, "url": target, "browser": "default"}
+        raise RuntimeError("no default browser")
+    except Exception as e:
+        diag("browser", False, msg="no browser at all", exc=e)
+        return {"ok": False, "message": "No web browser found. Install any browser to use this."}
 
 
 def browser_wipe():
@@ -3948,7 +3998,7 @@ def browser_status():
     with _BROWSER_LOCK:
         alive = sum(1 for p in _BROWSER["procs"] if p.poll() is None)
         return {"open": alive, "active": bool(_BROWSER.get("dir")),
-                "available": bool(_find_browser())}
+                "available": _browser_available()}
 
 
 # ===========================================================================

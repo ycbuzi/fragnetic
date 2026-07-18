@@ -261,11 +261,17 @@ def test_linux_runtime_parity():
     nonwin = seg.split('if OS != "Windows":', 1)[1] if 'if OS != "Windows":' in seg else ""
     check("linux: game_proc_status uses cross-platform pids on non-Windows (Health matches home)",
           "_find_game_pids()" in nonwin[:500])
-    # _find_browser must look for Linux/Chromium browser names, not just Chrome/Edge
+    # in-app browser must work with ANY browser: Chromium, Firefox, or the OS default
     bi = src.index("def _find_browser")
-    bseg = src[bi:bi + 800]
-    check("linux: _find_browser finds chromium / google-chrome (not just Chrome/Edge)",
-          "chromium" in bseg and "google-chrome" in bseg)
+    bseg = src[bi:bi + 1400]
+    check("linux: _find_browser finds Chromium AND Firefox families",
+          "chromium" in bseg and "google-chrome" in bseg and "firefox" in bseg)
+    oi = src.index("def browser_open")
+    oseg = src[oi:oi + 3000]
+    check("browser_open falls back to the DEFAULT browser (any browser) via webbrowser",
+          "webbrowser.open(target)" in oseg and '"firefox"' in oseg)
+    import fragroute as F
+    check("browser: _browser_available() true when a browser exists", F._browser_available() in (True, False))
 
 
 # --- 23) Linux import-safety: no unguarded module-level Windows-only imports ------------------
