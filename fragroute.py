@@ -1828,6 +1828,16 @@ def game_proc_status():
         return c["val"]
     res = {"running": False, "foreground": False, "name": None}
     if OS != "Windows":
+        # Linux/mac: use the SAME cross-platform process scan the home page uses, so
+        # the Health tab agrees with it (was hard-coded running=False -> the game showed
+        # on the home page but "not running" in System Health). Foreground stays False --
+        # Linux foreground detection is a separate, harder thing and not needed here.
+        try:
+            if _find_game_pids():
+                res["running"] = True
+                res["name"] = "fragpunk"
+        except Exception:
+            pass
         _GAME_PROC_CACHE.update({"ts": now, "val": res})
         return res
     try:
@@ -3809,6 +3819,18 @@ def _find_browser():
         os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
         shutil.which("msedge"), shutil.which("chrome"),
     ]
+    # Linux/macOS: Chromium-based browsers use different binary names on PATH.
+    for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
+                 "brave-browser", "microsoft-edge", "microsoft-edge-stable", "vivaldi-stable",
+                 "chrome"):
+        w = shutil.which(name)
+        if w:
+            cands.append(w)
+    # macOS app bundles
+    for p in ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+              "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+              "/Applications/Chromium.app/Contents/MacOS/Chromium"):
+        cands.append(p)
     for c in cands:
         if c and Path(c).exists():
             return c
@@ -3852,8 +3874,8 @@ def browser_open(url):
     """Open a URL in the ephemeral private browser. Returns {ok, url, browser}."""
     exe = _find_browser()
     if not exe:
-        diag("browser", False, msg="no Edge/Chrome found")
-        return {"ok": False, "message": "No Edge or Chrome found to browse with."}
+        diag("browser", False, msg="no Chrome/Chromium/Edge found")
+        return {"ok": False, "message": "No Chrome, Chromium, or Edge browser found — install one to use the in-app browser."}
     target = _browser_normalize(url)
     with _BROWSER_LOCK:
         if not (_BROWSER["dir"] and Path(_BROWSER["dir"]).exists()):

@@ -251,6 +251,23 @@ def test_video_faststart():
           "shutil.copy2(concat, out)" not in src)
 
 
+# --- 24) Linux runtime parity: game detection + in-app browser work cross-platform -----------
+def test_linux_runtime_parity():
+    here = os.path.dirname(os.path.abspath(__file__))
+    src = open(os.path.join(here, "fragroute.py"), encoding="utf-8", errors="replace").read()
+    # game_proc_status must NOT hard-return running=False on non-Windows (Health tab parity)
+    gi = src.index("def game_proc_status")
+    seg = src[gi:gi + 1400]
+    nonwin = seg.split('if OS != "Windows":', 1)[1] if 'if OS != "Windows":' in seg else ""
+    check("linux: game_proc_status uses cross-platform pids on non-Windows (Health matches home)",
+          "_find_game_pids()" in nonwin[:500])
+    # _find_browser must look for Linux/Chromium browser names, not just Chrome/Edge
+    bi = src.index("def _find_browser")
+    bseg = src[bi:bi + 800]
+    check("linux: _find_browser finds chromium / google-chrome (not just Chrome/Edge)",
+          "chromium" in bseg and "google-chrome" in bseg)
+
+
 # --- 23) Linux import-safety: no unguarded module-level Windows-only imports ------------------
 def test_linux_import_safe():
     import glob, re as _re
@@ -368,7 +385,7 @@ def main():
               test_ollama_backend, test_semantic_rag, test_split_tunnel_conf, test_qol,
               test_video_faststart, test_syscheck, test_admin_gating, test_getting_started,
               test_vpn_accessibility, test_coach_lancer_grounding, test_ship_privacy,
-              test_linux_import_safe):
+              test_linux_import_safe, test_linux_runtime_parity):
         print("[%s]" % t.__name__)
         try:
             t()
