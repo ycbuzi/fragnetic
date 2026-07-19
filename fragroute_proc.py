@@ -29,6 +29,81 @@ import subprocess
 _JOB = {"handle": None, "tried": False}
 _NOWIN = {"creationflags": 0x08000000} if os.name == "nt" else {}  # CREATE_NO_WINDOW
 
+# --- POSIX (Linux/mac) orphan-proofing ---------------------------------------
+# No Job Objects off Windows. Instead we TRACK adopted child PIDs and kill them on
+# atexit (clean exit, Ctrl+C) and on SIGTERM/SIGHUP (kill, terminal close, logout).
+# A hard SIGKILL is uncatchable -> reap() on the next launch is the backstop. We do
+# NOT use prctl(PR_SET_PDEATHSIG): it's tied to the SPAWNING THREAD, and our sidecars
+# start from worker threads, so it would kill them the moment that thread exits.
+_TRACKED = set()
+_POSIX = {"atexit": False, "signals": False}
+
+
+def _kill_tracked(*_a):
+    import signal as _sig
+    pids = list(_TRACKED)
+    for pid in pids:
+        try:
+            os.kill(pid, _sig.SIGTERM)
+        except Exception:
+            pass
+    try:
+        import time as _t
+        _t.sleep(0.25)          # brief grace for a clean shutdown
+    except Exception:
+        pass
+    for pid in pids:
+        try:
+            os.kill(pid, _sig.SIGKILL)
+        except Exception:
+            pass
+        _TRACKED.discard(pid)
+
+
+def _ensure_atexit():
+    if _POSIX["atexit"] or os.name == "nt":
+        return
+    try:
+        import atexit
+        atexit.register(_kill_tracked)
+        _POSIX["atexit"] = True
+    except Exception:
+        pass
+
+
+def install_posix_guard():
+    """MAIN-THREAD only: on Linux/mac, install SIGTERM/SIGHUP handlers that kill adopted
+    children before exit (kill, terminal close, logout). atexit covers clean exit + Ctrl+C;
+    a hard SIGKILL is uncatchable and handled by reap() next launch. Idempotent; no-op on
+    Windows (the Job Object already does this)."""
+    if os.name == "nt":
+        return
+    _ensure_atexit()
+    if _POSIX["signals"]:
+        return
+    try:
+        import signal as _sig
+
+        def _make(prev):
+            def _handler(signum, frame):
+                _kill_tracked()
+                try:                       # chain to prior handler, else default-exit
+                    if callable(prev):
+                        prev(signum, frame)
+                    else:
+                        _sig.signal(signum, _sig.SIG_DFL)
+                        os.kill(os.getpid(), signum)
+                except Exception:
+                    os._exit(0)
+            return _handler
+        for sname in ("SIGTERM", "SIGHUP"):
+            s = getattr(_sig, sname, None)
+            if s is not None:
+                _sig.signal(s, _make(_sig.getsignal(s)))
+        _POSIX["signals"] = True
+    except Exception:
+        pass   # not main thread / signal unavailable -> atexit still covers clean exit
+
 
 def _kill_on_close_job():
     """Return a cached Job Object handle whose members die when this process dies.
@@ -91,10 +166,18 @@ def _kill_on_close_job():
 
 def adopt(proc):
     """Put a child process in the kill-on-close job so it can never orphan.
-    Call right after subprocess.Popen() of any persistent helper. No-op on
-    non-Windows or if the job API is unavailable -- callers degrade gracefully."""
-    if os.name != "nt" or proc is None:
+    Call right after subprocess.Popen() of any persistent helper. On Linux/mac this
+    TRACKS the PID for atexit/SIGTERM cleanup; on Windows it joins the kill-on-close job."""
+    if proc is None:
         return
+    if os.name != "nt":
+        try:
+            if proc.pid:
+                _TRACKED.add(proc.pid)
+                _ensure_atexit()
+        except Exception:
+            pass
+        return {"ok": True}
     try:
         import ctypes
         from ctypes import wintypes
@@ -123,15 +206,20 @@ def reap(*image_names):
     accumulate (a pre-fix build could leave several). Safe for this single-user app --
     callers only invoke this when they don't currently own a live server, so this only
     kills stale ones; the servers we spawn next are adopt()'d and can never orphan again."""
-    if os.name != "nt":
-        return
     for name in image_names:
         if not name:
             continue
         try:
-            subprocess.run(["taskkill", "/IM", name, "/F"],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                           timeout=10, **_NOWIN)
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/IM", name, "/F"],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                               timeout=10, **_NOWIN)
+            else:
+                # Linux/mac: the helper has no .exe suffix and its comm is <=15 chars.
+                # -x = exact process-name match (like Windows /IM), not a cmdline substring.
+                base = name[:-4] if name.lower().endswith(".exe") else name
+                subprocess.run(["pkill", "-x", base[:15]],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
         except Exception:
             pass
 

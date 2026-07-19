@@ -251,6 +251,22 @@ def test_video_faststart():
           "shutil.copy2(concat, out)" not in src)
 
 
+# --- 25) Linux orphan-proofing parity: children die with the app off Windows too -------------
+def test_linux_orphan_guard():
+    here = os.path.dirname(os.path.abspath(__file__))
+    p = open(os.path.join(here, "fragroute_proc.py"), encoding="utf-8", errors="replace").read()
+    check("orphan: POSIX guard installs SIGTERM/SIGHUP + atexit cleanup",
+          "def install_posix_guard" in p and "SIGTERM" in p and "SIGHUP" in p and "atexit" in p)
+    check("orphan: adopt() tracks PIDs on non-Windows", "_TRACKED.add(proc.pid)" in p)
+    check("orphan: reap() uses pkill on non-Windows", "pkill" in p)
+    fr = open(os.path.join(here, "fragroute.py"), encoding="utf-8", errors="replace").read()
+    check("orphan: main() installs the POSIX guard (main thread)",
+          "install_posix_guard()" in fr)
+    import fragroute_proc as P
+    P.install_posix_guard()   # must not raise on any OS
+    check("orphan: install_posix_guard callable without error", True)
+
+
 # --- 24) Linux runtime parity: game detection + in-app browser work cross-platform -----------
 def test_linux_runtime_parity():
     here = os.path.dirname(os.path.abspath(__file__))
@@ -391,7 +407,7 @@ def main():
               test_ollama_backend, test_semantic_rag, test_split_tunnel_conf, test_qol,
               test_video_faststart, test_syscheck, test_admin_gating, test_getting_started,
               test_vpn_accessibility, test_coach_lancer_grounding, test_ship_privacy,
-              test_linux_import_safe, test_linux_runtime_parity):
+              test_linux_import_safe, test_linux_runtime_parity, test_linux_orphan_guard):
         print("[%s]" % t.__name__)
         try:
             t()

@@ -9792,6 +9792,16 @@ def main():
         if relaunch_elevated(already_relaunched=args.elevated):
             return  # an elevated instance is taking over (or the attempt failed)
 
+    # Orphan-proofing parity: on Linux/mac install SIGTERM/SIGHUP+atexit handlers (main
+    # thread) so adopted helper subprocesses (ffmpeg/llama-server/whisper/piper/sd) die
+    # with the app -- the cross-platform match for Windows' kill-on-close Job Object.
+    if OS != "Windows":
+        try:
+            import fragroute_proc
+            fragroute_proc.install_posix_guard()
+        except Exception:
+            pass
+
     STATE["configs_dir"] = Path(args.configs)
     STATE["dry_run"] = args.dry_run
     LOG_PATH = STATE["configs_dir"].parent / "fragroute_queue_log.json"
