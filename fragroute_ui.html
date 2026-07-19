@@ -1350,7 +1350,7 @@
       <select class="set-select" id="rtRegion" title="region whose match servers to optimize for"></select>
       <button class="mini-btn" id="rtRun">Optimize</button>
     </div>
-    <div class="sc-note">Tests <b>direct + every VPN config</b> and measures your real ping to that region's harvested match servers, then ranks them — the gaming-VPN trick (ExitLag-style) using your own Proton configs. Switches your tunnel repeatedly, so run it in the <b>menu, not mid-match</b>; your original route is restored after.</div>
+    <div class="sc-note">Tests <b>direct + every VPN config</b> and measures your real ping to that region's harvested match servers, then ranks them — the gaming-VPN trick (ExitLag-style) using your own WireGuard configs. Switches your tunnel repeatedly, so run it in the <b>menu, not mid-match</b>; your original route is restored after.</div>
     <div class="sc-note" id="rtReadyNote" style="color:var(--cyan)"></div>
     <div class="rt-body" id="rtBody"></div>
     <div class="rt-presets" id="rtPresets">
@@ -1429,7 +1429,7 @@
     </div>
   </div>
   <div class="footer-note">
-    <strong>FLOW //</strong> Cards rank by <strong>expected queue</strong> (heat + your logged data) filtered to regions under your max-ping cap. Hit <strong>Connect</strong> on a card and this app brings up that region's ProtonVPN WireGuard tunnel, which switches your route. Once the status bar shows connected, change the in-game server with <kbd>R</kbd> on the Play screen, queue up, and log the result so the recommendation sharpens. Population is heuristic; ping and switching are real.
+    <strong>FLOW //</strong> Cards rank by <strong>expected queue</strong> (heat + your logged data) filtered to regions under your max-ping cap. Hit <strong>Connect</strong> on a card and this app brings up that region's WireGuard tunnel, which switches your route. Once the status bar shows connected, change the in-game server with <kbd>R</kbd> on the Play screen, queue up, and log the result so the recommendation sharpens. Population is heuristic; ping and switching are real.
   </div>
   </div><!-- /pane routing -->
 
@@ -2034,7 +2034,7 @@
         <div class="set-ctl set-static" id="setPort">—</div>
       </div>
       <div class="set-row">
-        <div class="set-info"><div class="set-label">Configs folder</div><div class="set-desc">Where your ProtonVPN .conf files live.</div></div>
+        <div class="set-info"><div class="set-label">Configs folder</div><div class="set-desc">Where your WireGuard .conf files live (from any VPN provider — optional).</div></div>
         <div class="set-ctl set-static" id="setConfigsDir" title="">—</div>
       </div>
       <div class="set-row" data-admin-only>
@@ -2370,7 +2370,7 @@ function setHtml(el,v){ if(el&&el.innerHTML!==v)el.innerHTML=v; }
 
 function buildCards(){
   const grid=document.getElementById('regionsGrid');
-  if(!REGIONS||!REGIONS.length){grid.innerHTML='<div class="an-empty">No regions yet. Drop your ProtonVPN <b>.conf</b> files in the <b>configs</b> folder (next to the app), name them with a region code (e.g. US-NY, DE, JP), then hit Re-scan.</div>';return;}
+  if(!REGIONS||!REGIONS.length){grid.innerHTML='<div class="an-empty">No regions yet. A VPN is <b>optional</b> — real-ping still works without one. To route through a VPN, drop a WireGuard <b>.conf</b> from <b>any provider</b> (Proton, Mullvad, IVPN…) into the <b>configs</b> folder (or use <b>Import .conf</b>), name it with a region code (e.g. US-NY, DE, JP), then Re-scan.</div>';return;}
   // default each region's selected server to its best (lowest-ping) config
   REGIONS.forEach(r=>{ if(r.configMapped && !r.selectedConfig) r.selectedConfig=r.bestConfig||(r.servers&&r.servers[0]&&r.servers[0].name); });
   const sorted=[...REGIONS].sort((a,b)=>{
@@ -2518,7 +2518,7 @@ function updateLive(){
     setText(document.getElementById('recRegion'),'No configs found');
     setText(document.getElementById('recQueue'),'—');
     setText(document.getElementById('recPing'),'—');
-    setText(document.getElementById('recMeta'),`Drop ProtonVPN .conf files in: ${META.configsDir}`);
+    setText(document.getElementById('recMeta'),`Drop WireGuard .conf files in: ${META.configsDir}`);
     document.getElementById('recConnectBtn').style.display='none';
   }
 }
@@ -4809,7 +4809,7 @@ function renderScout(){
   }else nudge.style.display='none';
   // ranking rows
   const list=document.getElementById('scList'), rows=SCOUT.ranking||[];
-  if(!rows.length){ setHtml(list,'<div class="sc-empty">No mapped regions yet — drop ProtonVPN .conf files in the configs folder.</div>'); return; }
+  if(!rows.length){ setHtml(list,'<div class="sc-empty">No mapped regions yet — drop WireGuard .conf files in the configs folder.</div>'); return; }
   const maxExp=Math.max(...rows.map(r=>r.expectedQueueSec||0),1);
   let html='';
   // live status line: real population + your live ping (match server, else lobby)
@@ -5158,7 +5158,7 @@ function renderStatusTab(){
   } else { upd.style.display='none'; if(badge)badge.style.display='none'; }
   // server status from the Scout's per-region ping data
   const list=document.getElementById('ssList'), rows=SCOUT.ranking||[];
-  if(!rows.length){ setHtml(list,'<div class="ss-empty">No mapped regions — drop ProtonVPN .conf files in the configs folder.</div>'); return; }
+  if(!rows.length){ setHtml(list,'<div class="ss-empty">No mapped regions — drop WireGuard .conf files in the configs folder.</div>'); return; }
   let html='';
   rows.forEach(r=>{
     const ping=(r.realPingMs!=null?r.realPingMs:r.vpnPingMs);

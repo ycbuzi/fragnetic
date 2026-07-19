@@ -1370,7 +1370,7 @@ def converse_stop():
     return {"ok": True, "message": "Voice chat off.", "on": False}
 
 
-APP_BUILD = "20.24"   # bump on every change; shown in the UI header so you can see what's running
+APP_BUILD = "20.25"   # bump on every change; shown in the UI header so you can see what's running
 APP_NAME = "Fragnetic"  # product/display name (internal files stay fragroute_* for compat)
 # Lemon Squeezy checkout link (the app's Buy/Unlock buttons open this in the system
 # browser). Get it from your LS dashboard -> Products -> "Share" / checkout link.
@@ -2643,7 +2643,7 @@ def connect_region(region_id):
     """Connect the best (lowest-ping) config in a region."""
     if region_id not in STATE["configs"] or not STATE["configs"][region_id]:
         return {"ok": False, "message": f"No config mapped to {region_id}. "
-                f"Drop a ProtonVPN .conf for this region in the configs folder."}
+                f"Drop a WireGuard .conf for this region in the configs folder."}
     cfg = region_best_config(region_id)
     return _connect_entry(region_id, cfg)
 
