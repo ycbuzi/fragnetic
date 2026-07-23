@@ -140,8 +140,16 @@ def best_video_encoder():
 
 
 def detect(refresh=False):
+    # A cached profile whose encoder probe came back 'none' is NOT trustworthy: detect() can
+    # run BEFORE the engine sets FFMPEG (fragroute_setup.recommend() calls detect() during
+    # startup), and ffmpeg_encoders() returns an empty set when FFMPEG is unset. Caching that
+    # miss made "Record Gameplay" report "No usable video encoder / ffmpeg not found" forever,
+    # even on a box with ffmpeg + NVENC. So re-probe whenever the cached encoder is 'none' AND
+    # ffmpeg is now available. Same lesson as find_ffmpeg(): only cache a hit.
     if _CACHE and not refresh:
-        return _CACHE
+        enc = _CACHE.get("encoder") or {}
+        if enc.get("label") != "none" or not (FFMPEG and os.path.exists(str(FFMPEG))):
+            return _CACHE
     gpus = _all_gpus()
     best_vram = max([g.get("vramGB") or 0 for g in gpus], default=0)
     has_nv = any(g["vendor"] == "NVIDIA" for g in gpus)

@@ -9864,6 +9864,14 @@ def main():
             fragroute_video.FFMPEG = None
         fragroute_video.CLIPS_DIR = str(_captures_dir() / "clips")
         fragroute_video.OUT_DIR = str(_captures_dir() / "edited")
+    # MUST precede fragroute_setup: setup.recommend() calls fragroute_hardware.detect(), whose
+    # encoder probe needs FFMPEG already set -- otherwise it caches a bogus 'no encoder' profile
+    # and Record Gameplay reports "ffmpeg not found" for the rest of the run.
+    if fragroute_hardware is not None:
+        try:
+            fragroute_hardware.FFMPEG = fragroute_capture.find_ffmpeg() if fragroute_capture else None
+        except Exception:
+            fragroute_hardware.FFMPEG = None
     if fragroute_setup is not None:
         fragroute_setup.BASE_DIR = str(STATE["configs_dir"].parent)   # holds llm/ sd/ yolo/ stt/ + exe
     _base_dir = str(STATE["configs_dir"].parent)
@@ -9874,11 +9882,6 @@ def main():
     if fragroute_auth is not None:
         fragroute_auth.BASE_DIR = _base_dir               # fragroute_accounts.json lives here
         fragroute_auth.CLOUD_ENDPOINT = os.environ.get("FRAGROUTE_CLOUD_URL") or None
-    if fragroute_hardware is not None:
-        try:
-            fragroute_hardware.FFMPEG = fragroute_capture.find_ffmpeg() if fragroute_capture else None
-        except Exception:
-            fragroute_hardware.FFMPEG = None
     if fragroute_tts is not None:
         fragroute_tts.TTS_DIR = str(STATE["configs_dir"].parent / "tts")   # piper + voice models
     if fragroute_persona is not None:
