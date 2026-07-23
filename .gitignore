@@ -39,6 +39,10 @@ release/
 __pycache__/
 *.pyc
 *.spec
+# ...except OUR build spec. It's hand-tuned (datas/hiddenimports/excludes/uac_admin/icon),
+# not a throwaway PyInstaller artifact -- losing it silently changes what ships (e.g. the
+# torch excludes that keep the exe at ~64MB instead of ~210MB).
+!Fragnetic.spec
 assets/fragroute.ico
 assets/fragroute.png
 
