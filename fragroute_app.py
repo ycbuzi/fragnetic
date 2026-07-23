@@ -1184,6 +1184,11 @@ def run_native_window(url, httpd):
         httpd.shutdown()
     except Exception:
         pass
+    try:
+        if hasattr(fr, "cleanup_stray_tunnels"):   # don't leave the VPN tunnel up on exit
+            fr.cleanup_stray_tunnels()
+    except Exception:
+        pass
     # HARD exit: pywebview/WebView2/.NET can leave a non-daemon message pump
     # alive after the window closes, leaving a headless FRAGROUTE process
     # holding the exe lock. Force the whole process (and its child threads)
@@ -1202,6 +1207,12 @@ def _hard_quit(*_a):
     try:
         import fragroute_llm as _llm    # kill the local model server so it doesn't orphan
         _llm.stop()
+    except Exception:
+        pass
+    try:
+        import fragroute as _fr          # bring down any WireGuard tunnel WE installed so
+        if hasattr(_fr, "cleanup_stray_tunnels"):   # closing the app doesn't leave the VPN up
+            _fr.cleanup_stray_tunnels()
     except Exception:
         pass
     try:
