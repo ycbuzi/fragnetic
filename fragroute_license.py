@@ -44,7 +44,7 @@ def _atomic_write(path, text):
 APP_LICENSE_BUILD = "lic-4"
 
 # ---- verify-only public key (safe to ship; cannot sign with it) -------------
-_PUBKEY_B64 = "kDUD32/uTxedly/hvXB6tIQLrla3bo/HTznhhO9Glqs="
+_PUBKEY_B64 = "ifDKqYwZ0p6wiEm5tUnKc0C+3pE/FaP4IetWdwQiPtA="
 
 TIERS = {"free": 0, "trial": 1, "pro": 2, "admin": 3}
 TIER_LABEL = {"free": "Free", "trial": "Pro Trial", "pro": "Pro", "admin": "Admin (owner)"}
@@ -71,7 +71,7 @@ FREE_FEATURES = ["queue", "vpn", "overlay", "locker", "stats", "setup", "cards"]
 # only" is enforced. NOTE: the value below is the owner's id under the NEW MachineGuid
 # method -- the old MAC-based id ("a4b4d266c63e7992") is retired because the MAC method
 # drifted (VPN/adapter changes silently changed it, which had already broken this lock).
-OWNER_MACHINE_IDS = {"eaee9e5779c12ba1"}
+OWNER_MACHINE_IDS = {"eaee9e5779c12ba1", "3d855d743e4c8928"}
 
 # DEV-ONLY tier preview. The owner can 'view as' a customer tier (free/trial/pro) to
 # check the gated experience. It is honored ONLY on the owner machine (see entitlement)
