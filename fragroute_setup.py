@@ -1,8 +1,10 @@
 """FRAGROUTE first-run model installer -- downloads the big AI sidecars a buyer
 can't ship inside a ~90MB exe. Pure stdlib (urllib). Streams with progress, places
 files in the right sidecar folders, extracts the ffmpeg zip. The runtime BINARIES
-(llama.cpp / sd.cpp / whisper.cpp / sd-cli) + the CLIP onnx are shipped WITH the
-app package (small / generated), so they're not in this manifest.
+(llama.cpp / sd.cpp / whisper.cpp) ship WITH the app package AND are listed here so
+the app can SELF-HEAL them -- antivirus quarantine or a partial unzip otherwise kills
+vision/voice/image-gen with no in-app way to recover. The CLIP onnx is still not here:
+it's generated, with no public URL to fetch it from.
 
 Engine sets BASE_DIR (the folder that holds llm/ sd/ yolo/ stt/ + the exe).
 """
@@ -73,6 +75,30 @@ MANIFEST = [
     {"key": "geoip", "label": "Server locator (DB-IP City Lite, off-VPN names)", "folder": "geo",
      "filename": "dbip-city-lite.mmdb", "approxMB": 55, "required": False, "kind": "gz_monthly",
      "url": "https://download.db-ip.com/free/dbip-city-lite-{ym}.mmdb.gz"},
+
+    # ---- RUNTIME ENGINES -----------------------------------------------------------------
+    # These ship inside the release zip (package_release.py), so a fresh buyer already has
+    # them. They're ALSO here so the app can SELF-HEAL: antivirus quarantining llama-server.exe
+    # /sd-cli.exe is common and used to silently kill vision/voice/image-gen with no in-app way
+    # back. Kind 'zip_bindir' extracts a whole release zip into a binary FOLDER (exe + its
+    # DLLs); the URL is resolved from the upstream GitHub release at download time.
+    {"key": "engine_llm_gpu", "label": "Engine: coach + vision LLM (llama.cpp, GPU/Vulkan)",
+     "folder": "llm/vk", "filename": "llama-server.exe", "approxMB": 45, "required": False,
+     "kind": "zip_bindir", "repo": "ggml-org/llama.cpp", "match": ["bin-win-vulkan-x64"]},
+    {"key": "engine_llm_cpu", "label": "Engine: coach + vision LLM (llama.cpp, CPU fallback)",
+     "folder": "llm/cpu", "filename": "llama-server.exe", "approxMB": 20, "required": True,
+     "kind": "zip_bindir", "repo": "ggml-org/llama.cpp", "match": ["bin-win-cpu-x64"]},
+    {"key": "engine_stt", "label": "Engine: voice commands (whisper.cpp)",
+     "folder": "stt/bin", "filename": "whisper-server.exe", "approxMB": 10, "required": False,
+     "kind": "zip_bindir", "repo": "ggml-org/whisper.cpp", "match": ["whisper-bin-x64"]},
+    {"key": "engine_sd_gpu", "label": "Engine: image gen (stable-diffusion.cpp, GPU/Vulkan)",
+     "folder": "sd/vk", "filename": "sd-cli.exe", "approxMB": 25, "required": False,
+     "kind": "zip_bindir", "repo": "leejet/stable-diffusion.cpp", "match": ["win-vulkan-x64"],
+     "rename": {"sd.exe": "sd-cli.exe"}},
+    {"key": "engine_sd_cpu", "label": "Engine: image gen (stable-diffusion.cpp, CPU fallback)",
+     "folder": "sd/cpu", "filename": "sd-cli.exe", "approxMB": 25, "required": False,
+     "kind": "zip_bindir", "repo": "leejet/stable-diffusion.cpp", "match": ["win-cpu-x64"],
+     "rename": {"sd.exe": "sd-cli.exe"}},
 ]
 
 
@@ -99,6 +125,17 @@ def _dest(item):
 def is_present(item):
     p = _dest(item)
     try:
+        if item.get("kind") == "zip_bindir":
+            # A runtime-engine FOLDER (key exe + its DLLs). Do NOT size-band the exe here:
+            # llama-server.exe is a ~9KB launcher stub whose real code lives in the DLLs next
+            # to it, so a size check would reject a perfectly good install. Validate instead
+            # that the key exe exists AND its dependency files were extracted alongside it.
+            if not p.exists():
+                return False
+            try:
+                return sum(1 for _ in p.parent.iterdir()) >= 3
+            except Exception:
+                return True
         # present + within a tight band of the expected size. dest is only ever created from a
         # fully-downloaded (and, where a hash exists, sha256-verified) file, so this mainly
         # guards on-disk corruption / manual truncation. 0.85 (was 0.6) rejects a grossly
@@ -125,9 +162,14 @@ def recommend(prof=None):
     elif vram >= 4:  smart = "llm_mid"      # Phi-3.5-mini
     else:            smart = "llm_fast"     # Qwen2.5-1.5B (CPU-friendly)
     imagegen_ok = vram >= 8                 # SDXL is heavy; crawls under ~8GB
-    rec = {smart, "llm_fast", "vision", "vision_mmproj", "detector", "voice"}
+    # the runtime engines are not optional -- a model with no engine to run it is dead weight
+    rec = {smart, "llm_fast", "vision", "vision_mmproj", "detector", "voice",
+           "engine_llm_cpu", "engine_stt"}
+    if vram > 0:
+        rec.add("engine_llm_gpu")
     if imagegen_ok:
         rec.add("imagegen")
+        rec.add("engine_sd_gpu" if vram > 0 else "engine_sd_cpu")
     fit = {}
     for it in MANIFEST:
         k = it["key"]
@@ -186,6 +228,31 @@ def _resolve_monthly_url(template):
     return None
 
 
+GITHUB_LATEST = "https://api.github.com/repos/%s/releases/latest"
+
+
+def _resolve_github_asset(repo, match):
+    """Newest release asset of `repo` whose filename contains EVERY string in `match`.
+    The engine binaries are republished on every upstream build with the build number baked
+    into the filename (llama-b10091-bin-win-vulkan-x64.zip), so a hardcoded URL would rot
+    within days -- resolve it at download time, same as _resolve_monthly_url does for the
+    monthly GeoIP DB."""
+    import json as _json
+    try:
+        req = urllib.request.Request(GITHUB_LATEST % repo,
+                                     headers={"User-Agent": "FRAGROUTE-setup",
+                                              "Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=25) as r:
+            data = _json.loads(r.read().decode("utf-8", "ignore"))
+    except Exception:
+        return None
+    for a in (data.get("assets") or []):
+        name = (a.get("name") or "").lower()
+        if name.endswith(".zip") and all(m.lower() in name for m in match):
+            return a.get("browser_download_url")
+    return None
+
+
 def _download(item):
     key = item["key"]
     dest = _dest(item)
@@ -194,13 +261,20 @@ def _download(item):
     kind = item.get("kind", "")
     is_zip = kind == "zip_ffmpeg"
     is_gz = kind == "gz_monthly"
-    url = item["url"]
+    is_bindir = kind == "zip_bindir"
+    url = item.get("url")
     if is_gz:
         url = _resolve_monthly_url(item["url"])
         if not url:
             _PROG[key] = {"status": "error: database not available yet, try later", "pct": 0}
             return False
-    tmp = str(dest) + (".gz" if is_gz else ".zipdl" if is_zip else ".part")
+    if is_bindir:
+        # filename carries the upstream build number, so resolve it from the live release
+        url = _resolve_github_asset(item["repo"], item.get("match") or [])
+        if not url:
+            _PROG[key] = {"status": "error: no matching release build found (try later)", "pct": 0}
+            return False
+    tmp = str(dest) + (".gz" if is_gz else ".zipdl" if (is_zip or is_bindir) else ".part")
     # PRE-FLIGHT disk-space check: fail FAST with a clear message instead of
     # downloading for 20 minutes and dying on "[Errno 28] No space left". zip/gz
     # keep the compressed temp AND the extracted output on disk at the same time,
@@ -208,7 +282,7 @@ def _download(item):
     try:
         import shutil as _sh
         need_mb = int(item.get("approxMB", 0) or 0)
-        if is_zip or is_gz:
+        if is_zip or is_gz or is_bindir:
             need_mb *= 2
         need_mb += 512  # headroom for filesystem overhead / other writes
         free_mb = _sh.disk_usage(str(dest.parent)).free // 1048576
@@ -280,6 +354,37 @@ def _download(item):
             with gzip.open(tmp, "rb") as src, open(dest, "wb") as out:
                 shutil.copyfileobj(src, out, 1 << 20)
             os.remove(tmp)
+        elif is_bindir:
+            # Whole-folder engine: extract the release zip and flatten the directory that
+            # actually holds the key exe into our bin folder. Upstream zips vary (files at the
+            # root, or nested under build/bin/), so locate the exe rather than assuming a layout.
+            _PROG[key]["status"] = "extracting"
+            import shutil
+            import tempfile
+            outdir = dest.parent
+            outdir.mkdir(parents=True, exist_ok=True)
+            want = item["filename"]
+            aliases = list((item.get("rename") or {}).keys())
+            with tempfile.TemporaryDirectory() as td:
+                with zipfile.ZipFile(tmp) as z:
+                    z.extractall(td)
+                src_dir = None
+                for root, _dirs, files in os.walk(td):
+                    if want in files or any(a in files for a in aliases):
+                        src_dir = root
+                        break
+                if src_dir is None:
+                    raise RuntimeError("%s not found in the release zip" % want)
+                for f in os.listdir(src_dir):
+                    sp = os.path.join(src_dir, f)
+                    if os.path.isfile(sp):
+                        shutil.copy2(sp, outdir / f)
+                # upstream ships sd.exe; the app launches it as sd-cli.exe
+                for src_name, dst_name in (item.get("rename") or {}).items():
+                    sp, dp = outdir / src_name, outdir / dst_name
+                    if sp.exists() and not dp.exists():
+                        shutil.copy2(sp, dp)
+            os.remove(tmp)
         else:
             os.replace(tmp, dest)
         # integrity check against the known-good hash (where we have one)
@@ -306,7 +411,7 @@ def _download(item):
         # sha256 mismatches, the file is deleted, and the following retry starts clean. Only
         # zip/gz temps are removed -- those must be a COMPLETE archive to extract, and they're
         # small enough that re-downloading is cheap.
-        if is_zip or is_gz:
+        if is_zip or is_gz or is_bindir:
             try:
                 if os.path.exists(tmp):
                     os.remove(tmp)
