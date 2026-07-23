@@ -99,6 +99,14 @@ MANIFEST = [
      "folder": "sd/cpu", "filename": "sd-cli.exe", "approxMB": 25, "required": False,
      "kind": "zip_bindir", "repo": "leejet/stable-diffusion.cpp", "match": ["win-cpu-x64"],
      "rename": {"sd.exe": "sd-cli.exe"}},
+    # The CLIP embedder has no upstream download -- we EXPORT it (open_clip ViT-B/32 ->
+    # onnx) because no public URL serves this exact file. So it self-heals from OUR OWN
+    # release assets: attach clip_vitb32.onnx to any release and this finds it (any_release
+    # scans past releases, so shipping a new version doesn't require re-uploading it).
+    # Owner-only tooling (the labeler is admin-gated), hence not in the recommended set.
+    {"key": "clip", "label": "Label suggester (CLIP ViT-B/32 embeddings)", "folder": "clip",
+     "filename": "clip_vitb32.onnx", "approxMB": 335, "required": False, "kind": "gh_file",
+     "repo": "ycbuzi/fragnetic", "match": ["clip_vitb32"], "ext": ".onnx", "anyRelease": True},
 ]
 
 
@@ -229,27 +237,44 @@ def _resolve_monthly_url(template):
 
 
 GITHUB_LATEST = "https://api.github.com/repos/%s/releases/latest"
+GITHUB_RELEASES = "https://api.github.com/repos/%s/releases"
 
 
-def _resolve_github_asset(repo, match):
-    """Newest release asset of `repo` whose filename contains EVERY string in `match`.
-    The engine binaries are republished on every upstream build with the build number baked
-    into the filename (llama-b10091-bin-win-vulkan-x64.zip), so a hardcoded URL would rot
-    within days -- resolve it at download time, same as _resolve_monthly_url does for the
-    monthly GeoIP DB."""
+def _resolve_github_asset(repo, match, ext=".zip", any_release=False):
+    """Release asset of `repo` whose filename ends in `ext` and contains EVERY string in
+    `match`. The engine binaries are republished on every upstream build with the build
+    number baked into the filename (llama-b10091-bin-win-vulkan-x64.zip), so a hardcoded
+    URL would rot within days -- resolve it at download time, same as _resolve_monthly_url
+    does for the monthly GeoIP DB.
+
+    any_release=True also scans older releases when the LATEST one doesn't carry the asset.
+    Our own CLIP model lives on whichever release we attached it to, and requiring it to be
+    re-uploaded to every future release would break self-heal the next time we ship."""
     import json as _json
-    try:
-        req = urllib.request.Request(GITHUB_LATEST % repo,
-                                     headers={"User-Agent": "FRAGROUTE-setup",
-                                              "Accept": "application/vnd.github+json"})
-        with urllib.request.urlopen(req, timeout=25) as r:
-            data = _json.loads(r.read().decode("utf-8", "ignore"))
-    except Exception:
+
+    def _get(url):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "FRAGROUTE-setup",
+                                                       "Accept": "application/vnd.github+json"})
+            with urllib.request.urlopen(req, timeout=25) as r:
+                return _json.loads(r.read().decode("utf-8", "ignore"))
+        except Exception:
+            return None
+
+    def _pick(rel):
+        for a in ((rel or {}).get("assets") or []):
+            name = (a.get("name") or "").lower()
+            if name.endswith(ext) and all(m.lower() in name for m in match):
+                return a.get("browser_download_url")
         return None
-    for a in (data.get("assets") or []):
-        name = (a.get("name") or "").lower()
-        if name.endswith(".zip") and all(m.lower() in name for m in match):
-            return a.get("browser_download_url")
+
+    hit = _pick(_get(GITHUB_LATEST % repo))
+    if hit or not any_release:
+        return hit
+    for rel in (_get(GITHUB_RELEASES % repo) or []):
+        hit = _pick(rel)
+        if hit:
+            return hit
     return None
 
 
@@ -262,15 +287,18 @@ def _download(item):
     is_zip = kind == "zip_ffmpeg"
     is_gz = kind == "gz_monthly"
     is_bindir = kind == "zip_bindir"
+    is_ghfile = kind == "gh_file"          # plain file pulled from a GitHub release asset
     url = item.get("url")
     if is_gz:
         url = _resolve_monthly_url(item["url"])
         if not url:
             _PROG[key] = {"status": "error: database not available yet, try later", "pct": 0}
             return False
-    if is_bindir:
+    if is_bindir or is_ghfile:
         # filename carries the upstream build number, so resolve it from the live release
-        url = _resolve_github_asset(item["repo"], item.get("match") or [])
+        url = _resolve_github_asset(item["repo"], item.get("match") or [],
+                                    ext=item.get("ext", ".zip"),
+                                    any_release=bool(item.get("anyRelease")))
         if not url:
             _PROG[key] = {"status": "error: no matching release build found (try later)", "pct": 0}
             return False
