@@ -141,7 +141,7 @@
   .tab .tdot.on.live{background:var(--green);color:var(--green);animation:pulse 1.6s ease-in-out infinite}
   .tab .tdot.hlok{background:var(--green);color:var(--green)}
   .tab .tdot.hlbad{background:var(--red);color:var(--red)}
-  .tab .tbadge{font-family:'JetBrains Mono',monospace;font-size:8px;font-weight:700;letter-spacing:.12em;padding:1px 5px;border-radius:8px;background:var(--pink);color:var(--bg-0);min-width:16px;text-align:center}
+  .tab .tbadge,.tabgroup .tbadge{display:inline-block;margin-left:6px;vertical-align:middle;font-family:'JetBrains Mono',monospace;font-size:8px;font-weight:700;letter-spacing:.12em;padding:1px 5px;border-radius:8px;background:var(--pink);color:var(--bg-0);min-width:16px;text-align:center}
   /* tab panes: only the active one shows */
   .tab-pane{display:none}
   .tab-pane.active{display:block;animation:fadein .18s ease}
@@ -1223,13 +1223,11 @@
   <div class="tabbar" id="tabGroups">
     <button class="tabgroup active" data-group="play"><span class="tdot" id="tabGameDot"></span><span data-i18n="Play">Play</span></button>
     <button class="tabgroup" data-group="game"><span data-i18n="Game Info">Game Info</span></button>
-    <button class="tabgroup" data-group="ai"><span data-i18n="AI Coach">AI Coach</span></button>
+    <button class="tabgroup" data-group="ai"><span data-i18n="AI Coach">AI Coach</span><span id="tabNewsBadge" class="tbadge" style="display:none">0</span></button>
     <button class="tabgroup" data-group="media"><span data-i18n="Media">Media</span></button>
-    <button class="tabgroup" data-group="system"><span class="tdot" id="tabHealthDot"></span><span data-i18n="System">System</span></button>
+    <button class="tabgroup" data-group="system"><span class="tdot" id="tabHealthDot"></span><span data-i18n="System">System</span><span id="tabStatusBadge" class="tbadge" style="display:none">!</span></button>
   </div>
   <div class="subtabbar" id="tabSub"></div>
-  <span id="tabStatusBadge" class="tbadge" style="display:none">!</span>
-  <span id="tabNewsBadge" class="tbadge" style="display:none">0</span>
 
   <!-- ===================== TAB: ROUTING + LIVE GAME ===================== -->
   <div class="tab-pane active" data-pane="routing">

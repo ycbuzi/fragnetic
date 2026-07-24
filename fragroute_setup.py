@@ -67,6 +67,25 @@ MANIFEST = [
     {"key": "ffmpeg", "label": "Recorder/Video (ffmpeg LGPL)", "folder": ".",
      "filename": "ffmpeg.exe", "approxMB": 110, "required": True, "kind": "zip_ffmpeg",
      "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip"},
+    # ---- COACH VOICE (neural TTS) --------------------------------------------------------
+    # The coach's SPOKEN callouts. fragroute_tts.py drives Piper (offline neural TTS, warm/
+    # natural); with these three absent it silently falls back to robotic Windows SAPI, so a
+    # buyer never hears the good voice. Piper (MIT) ships piper.exe + DLLs + an espeak-ng-data
+    # SUBFOLDER -- zip_bindir copies directories too (see _download) so phonemization works.
+    # The voice is Amy (medium, US English, warm) from rhasspy/piper-voices; the .onnx.json
+    # config MUST sit beside the .onnx (Piper reads <model>.onnx.json). Swap the voice by
+    # pointing tts_voice/tts_voice_cfg at any other rhasspy/piper-voices file.
+    {"key": "engine_tts", "label": "Engine: coach voice (Piper neural TTS)",
+     "folder": "tts/piper", "filename": "piper.exe", "approxMB": 21, "required": False,
+     "kind": "zip_bindir", "repo": "rhasspy/piper", "match": ["windows_amd64"]},
+    {"key": "tts_voice", "label": "Coach voice (Amy -- warm US English, neural)", "folder": "tts/voices",
+     "filename": "en_US-amy-medium.onnx", "approxMB": 61, "required": False,
+     "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/en_US-amy-medium.onnx"},
+    # config is ~4KB; approxMB=0 so is_present is an exists-check, not a size-band (a 0.85*1MB
+    # floor would mark this tiny-but-valid file "missing" forever and re-download every launch).
+    {"key": "tts_voice_cfg", "label": "Coach voice config", "folder": "tts/voices",
+     "filename": "en_US-amy-medium.onnx.json", "approxMB": 0, "required": False,
+     "url": "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/amy/medium/en_US-amy-medium.onnx.json"},
     # Offline IP->city database so the Live Game tab can name ANY server (incl.
     # off-VPN / non-Alibaba-LB raw match IPs), no account, no online lookup.
     # DB-IP City Lite is CC BY 4.0 (commercial OK with attribution -- see NOTICES).
@@ -172,7 +191,9 @@ def recommend(prof=None):
     imagegen_ok = vram >= 8                 # SDXL is heavy; crawls under ~8GB
     # the runtime engines are not optional -- a model with no engine to run it is dead weight
     rec = {smart, "llm_fast", "vision", "vision_mmproj", "detector", "voice",
-           "engine_llm_cpu", "engine_stt"}
+           "engine_llm_cpu", "engine_stt",
+           # neural coach voice: tiny + CPU-friendly, so recommend it for everyone
+           "engine_tts", "tts_voice", "tts_voice_cfg"}
     if vram > 0:
         rec.add("engine_llm_gpu")
     if imagegen_ok:
@@ -405,8 +426,15 @@ def _download(item):
                     raise RuntimeError("%s not found in the release zip" % want)
                 for f in os.listdir(src_dir):
                     sp = os.path.join(src_dir, f)
+                    dp = outdir / f
                     if os.path.isfile(sp):
-                        shutil.copy2(sp, outdir / f)
+                        shutil.copy2(sp, dp)
+                    elif os.path.isdir(sp):
+                        # Some engines ship a data SUBFOLDER next to the exe (Piper's
+                        # espeak-ng-data/ -- without it Piper can't phonemize and every
+                        # synth fails). The llama/sd/whisper bins are flat, so this is a
+                        # no-op for them and only matters for Piper.
+                        shutil.copytree(sp, dp, dirs_exist_ok=True)
                 # upstream ships sd.exe; the app launches it as sd-cli.exe
                 for src_name, dst_name in (item.get("rename") or {}).items():
                     sp, dp = outdir / src_name, outdir / dst_name
