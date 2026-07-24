@@ -3819,13 +3819,27 @@ def _find_browser():
     user's DEFAULT browser via the stdlib `webbrowser` module, which works with ANY
     browser they have (Safari, Opera, GNOME Web, Konqueror, etc.)."""
     # --- Chromium family (Chrome / Edge / Brave / Vivaldi / Chromium) ---
-    chromium = [
-        os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
-        os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+    # The Media-tab browser is a REAL Chromium window (throwaway profile), not the
+    # WebView2 that renders the app shell. Chrome is preferred over Edge by default:
+    # Edge's throwaway-profile cold start drags in more background/telemetry and feels
+    # slower. The `mediaBrowser` setting can force a family ("chrome"/"edge"); "auto"
+    # (default) is Chrome-first, then Edge, then anything else installed. A forced
+    # choice still falls back to the others if that browser isn't present.
+    chrome_paths = [
         os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
         os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
-        shutil.which("msedge"), shutil.which("chrome"),
+        shutil.which("chrome"),
     ]
+    edge_paths = [
+        os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+        os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+        shutil.which("msedge"),
+    ]
+    try:
+        pref = str(get_setting("mediaBrowser", "auto") or "auto").lower()
+    except Exception:
+        pref = "auto"
+    chromium = (edge_paths + chrome_paths) if pref == "edge" else (chrome_paths + edge_paths)
     for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
                  "brave-browser", "microsoft-edge", "microsoft-edge-stable", "vivaldi-stable",
                  "chrome"):
@@ -4810,6 +4824,7 @@ DEFAULT_SETTINGS = {
     "ollamaVisionModel": "",        # "" = auto-pick an image-capable model (if any pulled); else an exact vision model (e.g. "qwen2.5vl:7b")
     "ollamaEmbedModel": "",         # "" = auto-detect an embedding model (e.g. nomic-embed-text) for semantic RAG; else an exact name
     "ollamaBase": "http://127.0.0.1:11434",  # Ollama endpoint (advanced; change only if you run it elsewhere)
+    "mediaBrowser": "auto",         # Media-tab embedded browser: "auto" (Chrome-first, then Edge), "chrome", or "edge"
     "autoMapCapture": True,         # auto-snap one map screenshot a few seconds into each match
     "autoRevertOnSwitch": True,     # undo a mid-match VPN switch that makes ping worse/dead
     "autoRevertGraceSec": 5,        # wait this long for the new tunnel before judging
