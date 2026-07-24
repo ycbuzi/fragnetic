@@ -3903,7 +3903,14 @@ document.getElementById('lkLightImg').addEventListener('click',e=>{
 document.getElementById('lkLightbox').addEventListener('click',()=>document.getElementById('lkLightbox').classList.remove('show'));
 document.getElementById('lkSearch').addEventListener('input',e=>{_lkQuery=(e.target.value||'').trim().toLowerCase();renderLocker();});
 document.getElementById('lkRefresh').addEventListener('click',()=>loadLocker(true));
-(function(){const b=document.getElementById('rankRefreshBtn');if(b)b.addEventListener('click',()=>{b.textContent='Reading…';refreshRank(true).then(()=>{b.textContent='Read now';});});})();
+(function(){const b=document.getElementById('rankRefreshBtn');if(b)b.addEventListener('click',()=>{b.textContent='Reading…';refreshRank(true).then((r)=>{b.textContent='Read now';
+  // Tell the user what happened instead of silently doing nothing: a read only
+  // works when the FragPunk rank card is actually on screen (menu/profile).
+  const o=r&&r.readOutcome;
+  if(o==='updated')toast('Rank updated','ok');
+  else if(o==='no_card')toast('No rank card on screen — open your FragPunk profile or lobby, then Read now','warn');
+  else if(o==='error')toast('Couldn’t read the rank card (OCR error)','warn');
+});});})();
 
 // ====================== IN-GAME SERVER PINGS ======================
 // OCR FragPunk's Server region/ping modal into the app (direct + via VPN), so
@@ -5092,8 +5099,9 @@ async function refreshGameInfo(){
 }
 let RANK=null;
 async function refreshRank(forceRead){
-  try{ RANK=await (await fetch(API+'/api/rank'+(forceRead?'?refresh=1':''))).json(); }catch(e){ return; }
+  try{ RANK=await (await fetch(API+'/api/rank'+(forceRead?'?refresh=1':''))).json(); }catch(e){ return null; }
   renderRank();
+  return RANK;
 }
 function renderRank(){
   const r=RANK||{}; const cur=r.current;

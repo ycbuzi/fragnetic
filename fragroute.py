@@ -6085,20 +6085,30 @@ def record_rank(snap):
 
 
 def rank_status(refresh=False):
-    """Current rank + RP history + session RP delta. refresh=True OCRs now
-    (only when the game is running and we're NOT in a match)."""
+    """Current rank + RP history + session RP delta. refresh=True OCRs now.
+
+    A manual "Read now" (refresh=True) reads even mid-match: it's an explicit user
+    action -- they clicked it because the rank card is on screen -- and the phase
+    detector can lag on the menu<->match flip, which used to silently block the read
+    and made the button look dead. parse_rank() is strict (needs a real tier AND an
+    RP number), so a mis-timed click on live gameplay just returns ok=False and
+    changes nothing. The BACKGROUND auto-reads stay menu-gated separately."""
     fresh = None
-    if refresh and not _in_match():
+    read_outcome = None                      # None=no read; else updated|no_card|error
+    if refresh:
+        read_outcome = "no_card"
         try:
             r = read_rank()
             if r.get("ok"):
                 record_rank(r)
                 fresh = r
+                read_outcome = "updated"
                 diag("rank", True, msg="read rank card")
             else:
                 diag("rank", True)   # OCR ran fine, rank card just wasn't visible -- not a fault
         except Exception as e:
             fresh = None
+            read_outcome = "error"
             diag("rank", False, msg="rank OCR", exc=e)
     data = load_rank()
     hist = data.get("history") or []
@@ -6118,7 +6128,8 @@ def rank_status(refresh=False):
         if ds:
             session_delta = sum(ds)
     return {"current": current, "history": hist[-60:],
-            "sessionDelta": session_delta, "lastRead": fresh}
+            "sessionDelta": session_delta, "lastRead": fresh,
+            "readOutcome": read_outcome}
 
 
 def scout_ping_match():
