@@ -4422,6 +4422,11 @@ function copyHealthReport(){
   if(!document.querySelector(`.tab-pane[data-pane="${t}"]`))t='routing';
   switchTab(t);
   loadIconSlots(()=>{ applyWallpaper(); syncWallpaperUI(); });
+  // Re-pull the icon store periodically so emblems/portraits added while the app is
+  // open (rank emblems, type icons, lancer art) show up without a restart -- the icon
+  // list is small and loadIconSlots() re-renders the rank badge if it changed. Gated on
+  // tab visibility so a backgrounded window isn't polling.
+  setInterval(()=>{ if(document.visibilityState==='visible') loadIconSlots(); }, 12000);
   fxBoot();   // CRT power-on glitch on launch
   // arm event FX only AFTER the initial state settles, so connect/match/rank
   // pulses don't fire spuriously from the first data load.
