@@ -3029,7 +3029,7 @@ function fxScramble(el){
 }
 function fxBoot(){ document.body.classList.add('fx-boot'); setTimeout(()=>document.body.classList.remove('fx-boot'),760); }
 const _TIER_C={BRONZE:'#cd7f43',SILVER:'#cfd6e6',GOLD:'#ffcf3a',PLATINUM:'#7fd0ff',DIAMOND:'#b46bff',MASTER:'#6ee06e',ACE:'#ffb43a',PUNKMASTER:'#ff4a4a'};
-let _fxPrevTunnel=null, _fxPrevPhase=null, _fxPrevRankKey=null, _fxReady=false;
+let _fxPrevTunnel=null, _fxPrevPhase=null, _fxPrevRankKey=null, _fxReady=false, _fxLastMFTs=0;
 
 // one-shot glitch transition: a diagonal screen-tear sweep + the new pane
 // materialising with an RGB-split jolt. Skipped in-game (render-paused).
@@ -4437,7 +4437,11 @@ function copyHealthReport(){
   fxBoot();   // CRT power-on glitch on launch
   // arm event FX only AFTER the initial state settles, so connect/match/rank
   // pulses don't fire spuriously from the first data load.
-  setTimeout(()=>{ _fxReady=true; }, 3500);
+  setTimeout(()=>{ _fxReady=true;
+    // Seed the last-seen match_found ts so a match already in progress at arm time
+    // (app opened mid-match) never retro-flashes "MATCH FOUND".
+    try{ const e=(AUTOCAP&&AUTOCAP.events||[]).find(x=>x&&x.kind==='match_found'); if(e)_fxLastMFTs=e.ts; }catch(_){}
+  }, 3500);
 })();
 
 // Reflect live-game status on the Live Game TAB itself, so you can see at a
@@ -4718,8 +4722,13 @@ function renderAutocapture(){
   const panel=document.getElementById('acPanel');
   if(!panel)return;
   const a=AUTOCAP||{phase:'idle'};
-  // FX: full-screen alert when a match is detected (phase enters 'match')
-  if(_fxReady && a.phase==='match' && _fxPrevPhase!=='match') fxFlash('MATCH FOUND','#3affa3');
+  // FX: flash MATCH FOUND on a genuine match_found EVENT, not the raw phase edge.
+  // Opening the app INTO a match already in progress commits phase='match' ~30s after
+  // launch with no real queue; the backend suppresses that phantom event, so keying off
+  // the event (not the phase transition) is what kills the false "match found" on launch.
+  const _mf=(a.events||[]).find(e=>e&&e.kind==='match_found');
+  if(_fxReady && _mf && _mf.ts>_fxLastMFTs) fxFlash('MATCH FOUND','#3affa3');
+  if(_mf) _fxLastMFTs=Math.max(_fxLastMFTs,_mf.ts);
   _fxPrevPhase=a.phase;
   const running=(a.phase==='menu'||a.phase==='match');
   const hasHistory=(a.events&&a.events.length);

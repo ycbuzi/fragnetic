@@ -5016,6 +5016,11 @@ AUTODETECT = {
     "_pendingSince": None,
     "_pendingCount": 0,
     "_slowNudgeFor": None,      # queueStartTs we've already fired a slow-queue nudge for
+    # JOINED-IN-PROGRESS guard: was FragPunk already up when the detector started?
+    # If so, the first match we hit shortly after is one we OPENED INTO, not a real
+    # queue -- so we must not fire a phantom "match found" for it.
+    "_appStartTs": None,        # seconds ts of the detector's first tick
+    "_gameUpAtStart": None,     # True if the game was already running on that first tick
 }
 _AUTODETECT_LOCK = threading.Lock()
 _AUTOCONNECT_ONCE = {"done": False}  # so we only auto-connect once per launch
@@ -5092,6 +5097,14 @@ def _autodetect_tick():
     server = st.get("server")
     server_ip = (server or {}).get("ip")
     now = time.time()
+
+    # Remember whether FragPunk was ALREADY running the moment the detector woke up.
+    # The phase starts at "idle", so a game that was already open reads as a fresh
+    # idle->menu->match sequence and fires a phantom "match found" -- this flag lets
+    # the ENTERING MATCH path recognise "we opened into an ongoing session" instead.
+    if AUTODETECT.get("_appStartTs") is None:
+        AUTODETECT["_appStartTs"] = now
+        AUTODETECT["_gameUpAtStart"] = running
 
     # ROUTE-CHANGE STICKINESS: a VPN switch mid-match briefly drops the game's
     # connection to the match server (your IP/path changed) before it reconnects
@@ -5329,7 +5342,17 @@ def _autodetect_tick():
                      % (server.get("ip")))
             qs = AUTODETECT["queueStartTs"]
             manual = bool(AUTODETECT.get("queueManual"))
-            if qs and not training:
+            # JOINED IN PROGRESS: the app opened while FragPunk was already up and we
+            # hit a match within ~3 min -> there was no real queue we witnessed, so
+            # firing "match found" (with a wall-clock or OCR'd queue time measured from
+            # app-open) is a phantom. Suppress it for this ONE match; a manual "Mark
+            # Queue" still counts as a real, deliberate queue. Only ever gates the first
+            # match right after opening into a running game.
+            joined = bool(AUTODETECT.get("_gameUpAtStart") and first_of_session
+                          and not manual
+                          and (t_ms / 1000.0 - (AUTODETECT.get("_appStartTs") or 0)) < 180)
+            AUTODETECT["_gameUpAtStart"] = False   # gate at most the first match
+            if qs and not training and not joined:
                 dur = max(0, int((t_ms - qs) / 1000))
                 # prefer the OCR'd on-screen queue timer when we have a recent
                 # reading: it counts ONLY real queue time, not menu/warm-up dwell,
@@ -5340,9 +5363,16 @@ def _autodetect_tick():
                 if ocr_start and ocr_ts and (t_ms - ocr_ts) <= 90000:
                     dur = max(0, int((t_ms - ocr_start) / 1000))
                     ocr_used = True
-                _ad_event("match_found", durationS=dur, regionId=rid,
-                          includesMenu=(first_of_session and not manual and not ocr_used),
-                          manual=manual, ocr=ocr_used)
+                # sanity cap: FragPunk queues are seconds to a few minutes. A wildly
+                # large duration is a misread (e.g. OCR grabbing a scoreboard clock) --
+                # don't let it fire a phantom "22-minute queue". Fall back to wall-clock.
+                if dur > 900:
+                    dur = max(0, int((t_ms - qs) / 1000))
+                    ocr_used = False
+                if dur <= 900:
+                    _ad_event("match_found", durationS=dur, regionId=rid,
+                              includesMenu=(first_of_session and not manual and not ocr_used),
+                              manual=manual, ocr=ocr_used)
                 # auto-log a trustworthy queue measurement: enabled, has a region,
                 # at least minLogSeconds, not an absurd outlier. A MANUAL mark or an
                 # OCR-derived duration is precise, so it logs even on the first match
