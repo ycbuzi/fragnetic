@@ -7336,8 +7336,35 @@ def _save_icons(data):
         diag("icons", False, msg="save", exc=e)
 
 
+# Bundled DEFAULT emblems shipped INSIDE the exe (spec adds ship_assets/
+# fragroute_icons.json -> SCRIPT_DIR at runtime). This is the fallback layer: it
+# survives a fresh install / wipe and gives every user the rank art out of the box,
+# without seeding the user's writable store. The user's own icons (ICONS_PATH) sit
+# ON TOP, so a custom upload overrides the shipped default and clearing a custom one
+# falls back to the default rather than to the lettered placeholder.
+_DEFAULT_ICONS_CACHE = {"loaded": False, "data": {"slots": {}}}
+
+
+def _load_default_icons():
+    if _DEFAULT_ICONS_CACHE["loaded"]:
+        return _DEFAULT_ICONS_CACHE["data"]
+    data = {"slots": {}}
+    try:
+        p = SCRIPT_DIR / "fragroute_icons.json"   # bundled next to fragroute.py when frozen
+        if p.exists():
+            loaded = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict) and isinstance(loaded.get("slots"), dict):
+                data = loaded
+    except Exception:
+        data = {"slots": {}}
+    _DEFAULT_ICONS_CACHE.update({"loaded": True, "data": data})
+    return data
+
+
 def icons_manifest():
-    return {"slots": sorted((_load_icons().get("slots") or {}).keys())}
+    slots = set((_load_default_icons().get("slots") or {}).keys())
+    slots |= set((_load_icons().get("slots") or {}).keys())
+    return {"slots": sorted(slots)}
 
 
 def icon_set(slot, image):
@@ -7366,6 +7393,8 @@ def icon_set(slot, image):
 
 def icon_get(slot):
     rec = (_load_icons().get("slots") or {}).get(slot)
+    if not (rec and rec.get("data")):
+        rec = (_load_default_icons().get("slots") or {}).get(slot)   # shipped fallback
     if rec and rec.get("data"):
         try:
             return _b64.b64decode(rec["data"]), rec.get("mime", "image/jpeg")
